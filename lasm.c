@@ -1,4 +1,4 @@
-#include "./lvm.c"
+#include "./lvm.h"
 
 int main(int argc, char **argv)
 {
