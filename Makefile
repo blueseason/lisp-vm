@@ -18,7 +18,10 @@ clean:
 	rm lasm lvm dlsm
 
 .PHONY: examples
-examples: ./examples/fib.lvm
+examples: ./examples/fib.lvm ./examples/test.lvm
 
-./examples/fib.lvm: ./examples/fib.lasm
+./examples/fib.lvm: lasm ./examples/fib.lasm
 	./lasm ./examples/fib.lasm ./examples/fib.lvm
+
+./examples/test.lvm: lasm ./examples/test.lasm
+	./lasm ./examples/test.lasm ./examples/test.lvm

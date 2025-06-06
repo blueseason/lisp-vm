@@ -20,7 +20,17 @@
 #define LABEL_CAPACITY 1024
 #define DEFERED_OPERANDS_CAPACITY 1024
 
-typedef int64_t Word;
+typedef uint64_t Inst_Addr;
+
+typedef union {
+    uint64_t as_u64;
+    int64_t as_i64;
+    double as_f64;
+    void *as_ptr;
+} Word;
+
+static_assert(sizeof(Word) == 8,
+              "The LVM's Word is expected to be 64 bits");
 
 typedef enum {
   ERR_OK = 0,
@@ -99,23 +109,14 @@ typedef struct {
 
 typedef struct {
     Word stack[LVM_STACK_CAPCITY];
-    Word stack_size;
+    uint64_t stack_size;
     
     Inst program[LVM_PROGRAM_CAPACITY];
-    Word program_size;
-    Word pc;
+    uint64_t program_size;
+    Inst_Addr pc;
     
     int halt;
 } LVM;
-
-#define MAKE_INST_PUSH(value) {.type = INST_PUSH, .operand = (value)}
-#define MAKE_INST_PLUS        {.type = INST_PLUS}
-#define MAKE_INST_MINUS       {.type = INST_MINUS}
-#define MAKE_INST_MULT        {.type = INST_MULT}
-#define MAKE_INST_DIV         {.type = INST_DIV}
-#define MAKE_INST_JMP(addr)   {.type = INST_JMP, .operand = (addr)}
-#define MAKE_INST_DUP(addr)   {.type = INST_DUP, .operand = (addr)}
-#define MAKE_INST_HALT        {.type = INST_HALT, .operand = (addr)}
 
 
 Err lvm_execute_inst(LVM* lvm);
@@ -127,7 +128,7 @@ void lvm_load_program_from_file(LVM* lvm, const char* file_path);
 void lvm_save_program_to_file(const LVM* lvm, const char* file_path);
 
 Err lvm_execute_inst(LVM* lvm) {
-  if (lvm->pc < 0 || lvm->pc >= lvm->program_size) {
+  if (lvm->pc >= lvm->program_size) {
     return ERR_ILLEGAL_INST_ACCESS;
   }
 
@@ -149,7 +150,7 @@ Err lvm_execute_inst(LVM* lvm) {
     if (lvm->stack_size < 2) {
       return ERR_STACK_UNDERFLOW;
     }
-    lvm->stack[lvm->stack_size - 2] += lvm->stack[lvm->stack_size - 1];
+    lvm->stack[lvm->stack_size - 2].as_u64 += lvm->stack[lvm->stack_size - 1].as_u64;
     lvm->stack_size -=1;
     lvm->pc +=1;
     break;
@@ -157,7 +158,7 @@ Err lvm_execute_inst(LVM* lvm) {
     if (lvm->stack_size < 2) {
       return ERR_STACK_UNDERFLOW;
     }
-    lvm->stack[lvm->stack_size - 2] -= lvm->stack[lvm->stack_size - 1];
+    lvm->stack[lvm->stack_size - 2].as_u64 -= lvm->stack[lvm->stack_size - 1].as_u64;
     lvm->stack_size -=1;
     lvm->pc +=1;
     break;
@@ -165,10 +166,10 @@ Err lvm_execute_inst(LVM* lvm) {
     if (lvm->stack_size < 2) {
       return ERR_STACK_UNDERFLOW;
     }
-    if (lvm->stack[lvm->stack_size -1] == 0) {
+    if (lvm->stack[lvm->stack_size -1].as_u64 == 0) {
       return ERR_DIV_BY_ZERO;
     }
-    lvm->stack[lvm->stack_size - 2] /= lvm->stack[lvm->stack_size - 1];
+    lvm->stack[lvm->stack_size - 2].as_u64 /= lvm->stack[lvm->stack_size - 1].as_u64;
     lvm->stack_size -=1;
     lvm->pc +=1;
     break;
@@ -176,12 +177,12 @@ Err lvm_execute_inst(LVM* lvm) {
     if (lvm->stack_size < 2) {
       return ERR_STACK_UNDERFLOW;
     }
-    lvm->stack[lvm->stack_size - 2] *= lvm->stack[lvm->stack_size - 1];
+    lvm->stack[lvm->stack_size - 2].as_u64 *= lvm->stack[lvm->stack_size - 1].as_u64;
     lvm->stack_size -=1;
     lvm->pc +=1;
     break;
   case INST_JMP:
-    lvm->pc = inst.operand;
+    lvm->pc = inst.operand.as_u64;
     break;
   case INST_HALT:
     lvm->halt = 1;
@@ -190,7 +191,7 @@ Err lvm_execute_inst(LVM* lvm) {
     if (lvm->stack_size < 2) {
       return ERR_STACK_UNDERFLOW;
     }
-    lvm->stack[lvm->stack_size - 2] = lvm->stack[lvm->stack_size - 1] == lvm->stack[lvm->stack_size - 2];
+    lvm->stack[lvm->stack_size - 2].as_u64 = lvm->stack[lvm->stack_size - 1].as_u64 == lvm->stack[lvm->stack_size - 2].as_u64;
     lvm->stack_size -=1;
     lvm->pc +=1;
     break;
@@ -198,9 +199,9 @@ Err lvm_execute_inst(LVM* lvm) {
     if (lvm->stack_size < 1) {
       return ERR_STACK_UNDERFLOW;
     }
-    if (lvm->stack[lvm->stack_size -1]) {
+    if (lvm->stack[lvm->stack_size -1].as_u64) {
       lvm->stack_size -= 1;
-      lvm->pc = inst.operand;
+      lvm->pc = inst.operand.as_u64;
     }else {
       lvm->pc += 1;
     }
@@ -209,7 +210,7 @@ Err lvm_execute_inst(LVM* lvm) {
     if (lvm->stack_size < 1) {
       return ERR_STACK_UNDERFLOW;
     }
-    printf("%ld\n",lvm->stack[lvm->stack_size - 1]);
+    printf("%lu\n",lvm->stack[lvm->stack_size - 1].as_u64);
     lvm->stack_size -=1;
     lvm->pc +=1;
     break;
@@ -217,13 +218,11 @@ Err lvm_execute_inst(LVM* lvm) {
     if (lvm->stack_size >= LVM_STACK_CAPCITY) {
       return ERR_STACK_OVERFLOW;
     }
-    if (lvm->stack_size - inst.operand <=0) {
+    if (lvm->stack_size - inst.operand.as_u64 <=0) {
       return ERR_STACK_UNDERFLOW;
     }
-    if (inst.operand < 0) {
-      return ERR_ILLEGAL_INST;
-    }
-    lvm->stack[lvm->stack_size] = lvm->stack[lvm->stack_size - 1 - inst.operand];
+
+    lvm->stack[lvm->stack_size] = lvm->stack[lvm->stack_size - 1 - inst.operand.as_u64];
     lvm->stack_size += 1;
     lvm->pc += 1;
     break;
@@ -251,8 +250,12 @@ Err lvm_execute_program(LVM *lvm, int limit) {
 void lvm_dump_stack(FILE* stream, const LVM* lvm) {
   fprintf(stream, "Stack:\n");
   if (lvm->stack_size > 0) {
-    for (Word i =0; i < lvm->stack_size; i++) {
-      fprintf(stream, "  %ld\n", lvm->stack[i]);
+    for (Inst_Addr i = 0; i < lvm->stack_size; ++i) {
+      fprintf(stream, "  u64: %lu, i64: %ld, f64: %lf, ptr: %p\n",
+              lvm->stack[i].as_u64,
+              lvm->stack[i].as_i64,
+              lvm->stack[i].as_f64,
+              lvm->stack[i].as_ptr);
     }
   }else {
     fprintf(stream, "  [empty]\n");
@@ -336,11 +339,11 @@ typedef struct  {
 
 typedef struct {
     String_View name;
-    Word addr;
+    Inst_Addr addr;
 } Label;
 
 typedef struct {
-    Word addr;
+    Inst_Addr addr;
     String_View label;
 } Defered_Operand;
 
@@ -351,9 +354,9 @@ typedef struct {
     size_t defered_operands_size;
 } Lasm;
 
-Word label_table_find(const Lasm *lt, String_View name);
-void label_table_push(Lasm *lt, String_View name, Word addr);
-void label_table_push_defered_operand(Lasm *lt, Word addr, String_View label);
+Inst_Addr label_table_find(const Lasm *lt, String_View name);
+void label_table_push(Lasm *lt, String_View name, Inst_Addr addr);
+void label_table_push_defered_operand(Lasm *lt, Inst_Addr addr, String_View label);
 
 void lvm_translate_source(String_View source, LVM *lvm, Lasm *lt);
 
@@ -481,12 +484,12 @@ void lvm_translate_source(String_View source,
 	} else if (sv_eq(inst_name, cstr_as_sv("push"))) {
           lvm->program[lvm->program_size++] = (Inst) {
             .type = INST_PUSH,
-            .operand = sv_to_int(operand)
+            .operand = { .as_i64 = sv_to_int(operand) }
           };
 	} else if (sv_eq(inst_name, cstr_as_sv("dup"))) {
           lvm->program[lvm->program_size++] = (Inst) {
             .type = INST_DUP,
-            .operand = sv_to_int(operand)
+            .operand = { .as_i64 = sv_to_int(operand) }
           };
 	} else if (sv_eq(inst_name, cstr_as_sv("plus"))) {
           lvm->program[lvm->program_size++] = (Inst) {
@@ -496,7 +499,7 @@ void lvm_translate_source(String_View source,
 	  if (operand.count > 0 && isdigit(*operand.data)) {
 	    lvm->program[lvm->program_size++] = (Inst) {
               .type = INST_JMP,
-	      .operand = sv_to_int(operand),
+	      .operand = { .as_i64 = sv_to_int(operand) },
             };
 	  }else {
             label_table_push_defered_operand(lt, lvm->program_size, operand);
@@ -504,7 +507,11 @@ void lvm_translate_source(String_View source,
               .type = INST_JMP
             };
 	  }
-	} else {
+	} else if (sv_eq(inst_name, cstr_as_sv("halt"))) {
+          lvm->program[lvm->program_size++] = (Inst) {
+            .type = INST_HALT
+          };
+        } else {
           fprintf(stderr, "ERROR: unknown instruction `%.*s`\n",
                   (int) inst_name.count, inst_name.data);
           exit(1);
@@ -514,9 +521,9 @@ void lvm_translate_source(String_View source,
   }
 
   for (size_t i = 0; i < lt->defered_operands_size;i++) {
-    Word addr = label_table_find(lt, lt->defered_operands[i].label);
+    Inst_Addr addr = label_table_find(lt, lt->defered_operands[i].label);
     //inst 从0开始， 替换jmp指令的地址为解析label的inst地址
-    lvm->program[lt->defered_operands[i].addr].operand = addr;
+    lvm->program[lt->defered_operands[i].addr].operand.as_u64 = addr;
   }
 }
 
@@ -571,7 +578,7 @@ String_View slurp_file(const char *file_path)
 }
 
 
-Word label_table_find(const Lasm *lt, String_View name)
+Inst_Addr label_table_find(const Lasm *lt, String_View name)
 {
     for (size_t i = 0; i < lt->labels_size; ++i) {
         if (sv_eq(lt->labels[i].name, name)) {
@@ -584,13 +591,13 @@ Word label_table_find(const Lasm *lt, String_View name)
     exit(1);
 }
 
-void label_table_push(Lasm *lt, String_View name, Word addr)
+void label_table_push(Lasm *lt, String_View name, Inst_Addr addr)
 {
     assert(lt->labels_size < LABEL_CAPACITY);
     lt->labels[lt->labels_size++] = (Label) {.name = name, .addr = addr};
 }
 
-void label_table_push_defered_operand(Lasm *lt, Word addr, String_View label)
+void label_table_push_defered_operand(Lasm *lt, Inst_Addr addr, String_View label)
 {
     assert(lt->defered_operands_size < DEFERED_OPERANDS_CAPACITY);
     lt->defered_operands[lt->defered_operands_size++] =
