@@ -18,7 +18,7 @@
 #define LVM_PROGRAM_CAPACITY 1024
 #define LVM_EXECUTION_LIMIT 128
 #define LABEL_CAPACITY 1024
-#define UNRESOLVED_JMPS_CAPACITY 1024
+#define DEFERED_OPERANDS_CAPACITY 1024
 
 typedef int64_t Word;
 
@@ -342,20 +342,20 @@ typedef struct {
 typedef struct {
     Word addr;
     String_View label;
-} Unresolved_Jmp;
+} Defered_Operand;
 
 typedef struct {
     Label labels[LABEL_CAPACITY];
     size_t labels_size;
-    Unresolved_Jmp unresolved_jmps[UNRESOLVED_JMPS_CAPACITY];
-    size_t unresolved_jmps_size;
-} Label_Table;
+    Defered_Operand defered_operands[DEFERED_OPERANDS_CAPACITY];
+    size_t defered_operands_size;
+} Lasm;
 
-Word label_table_find(const Label_Table *lt, String_View name);
-void label_table_push(Label_Table *lt, String_View name, Word addr);
-void label_table_push_unresolved_jmp(Label_Table *lt, Word addr, String_View label);
+Word label_table_find(const Lasm *lt, String_View name);
+void label_table_push(Lasm *lt, String_View name, Word addr);
+void label_table_push_defered_operand(Lasm *lt, Word addr, String_View label);
 
-void lvm_translate_source(String_View source, LVM *lvm, Label_Table *lt);
+void lvm_translate_source(String_View source, LVM *lvm, Lasm *lt);
 
 String_View cstr_as_sv(const char *cstr);
 String_View sv_trim_left(String_View sv);
@@ -366,7 +366,7 @@ int sv_eq(String_View a, String_View b);
 int sv_to_int(String_View sv);
 
 void lvm_translate_source(String_View source,
-                          LVM *lvm, Label_Table *lt);
+                          LVM *lvm, Lasm *lt);
 String_View slurp_file(const char *file_path);
 
 // 复合字面量（Compound Literal）允许在代码中直接创建并初始化一个匿名对象
@@ -453,7 +453,7 @@ int sv_to_int(String_View sv)
 }
 
 void lvm_translate_source(String_View source,
-                          LVM *lvm, Label_Table *lt){
+                          LVM *lvm, Lasm *lt){
   lvm->program_size = 0;
   
   while (source.count > 0) {
@@ -499,7 +499,7 @@ void lvm_translate_source(String_View source,
 	      .operand = sv_to_int(operand),
             };
 	  }else {
-            label_table_push_unresolved_jmp(lt, lvm->program_size, operand);
+            label_table_push_defered_operand(lt, lvm->program_size, operand);
             lvm->program[lvm->program_size++] = (Inst) {
               .type = INST_JMP
             };
@@ -513,10 +513,10 @@ void lvm_translate_source(String_View source,
     }
   }
 
-  for (size_t i = 0; i < lt->unresolved_jmps_size;i++) {
-    Word addr = label_table_find(lt, lt->unresolved_jmps[i].label);
+  for (size_t i = 0; i < lt->defered_operands_size;i++) {
+    Word addr = label_table_find(lt, lt->defered_operands[i].label);
     //inst 从0开始， 替换jmp指令的地址为解析label的inst地址
-    lvm->program[lt->unresolved_jmps[i].addr].operand = addr;
+    lvm->program[lt->defered_operands[i].addr].operand = addr;
   }
 }
 
@@ -571,7 +571,7 @@ String_View slurp_file(const char *file_path)
 }
 
 
-Word label_table_find(const Label_Table *lt, String_View name)
+Word label_table_find(const Lasm *lt, String_View name)
 {
     for (size_t i = 0; i < lt->labels_size; ++i) {
         if (sv_eq(lt->labels[i].name, name)) {
@@ -584,17 +584,17 @@ Word label_table_find(const Label_Table *lt, String_View name)
     exit(1);
 }
 
-void label_table_push(Label_Table *lt, String_View name, Word addr)
+void label_table_push(Lasm *lt, String_View name, Word addr)
 {
     assert(lt->labels_size < LABEL_CAPACITY);
     lt->labels[lt->labels_size++] = (Label) {.name = name, .addr = addr};
 }
 
-void label_table_push_unresolved_jmp(Label_Table *lt, Word addr, String_View label)
+void label_table_push_defered_operand(Lasm *lt, Word addr, String_View label)
 {
-    assert(lt->unresolved_jmps_size < UNRESOLVED_JMPS_CAPACITY);
-    lt->unresolved_jmps[lt->unresolved_jmps_size++] =
-        (Unresolved_Jmp) {.addr = addr, .label = label};
+    assert(lt->defered_operands_size < DEFERED_OPERANDS_CAPACITY);
+    lt->defered_operands[lt->defered_operands_size++] =
+        (Defered_Operand) {.addr = addr, .label = label};
 }
 
 #endif

@@ -1,6 +1,6 @@
 #include "./lvm.h"
 
-Label_Table lt = {0};
+Lasm lasm = {0};
 
 char *shift(int *argc, char ***argv);
 void usage(FILE *stream, const char *program);
@@ -41,7 +41,7 @@ int main(int argc, char **argv)
 
   String_View source = slurp_file(input_file_path);
 
-  lvm_translate_source(source,&lvm,&lt);
+  lvm_translate_source(source,&lvm,&lasm);
 
   lvm_save_program_to_file(&lvm, output_file_path);
 
