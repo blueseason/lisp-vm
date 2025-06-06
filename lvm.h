@@ -358,6 +358,7 @@ String_View sv_trim(String_View sv)
     return sv_trim_right(sv_trim_left(sv));
 }
 
+//将str split，返回delim之前的str部分
 String_View sv_chop_by_delim(String_View *sv, char delim) {
   size_t i = 0;
   while (i < sv->count && sv->data[i] != delim) {
@@ -369,6 +370,7 @@ String_View sv_chop_by_delim(String_View *sv, char delim) {
     .data = sv->data,
   };
 
+  // 处理剩余部分offset
   if (i < sv->count) {
     sv->count -= i + 1;
     sv->data  += i + 1;
@@ -404,22 +406,22 @@ Inst lvm_translate_line(String_View line) {
   line = sv_trim_left(line);
   String_View inst_name = sv_chop_by_delim(&line, ' ');
 
+  // 处理 # 和 inst 在同一行，且 #在尾部的情况
+  String_View operand = sv_trim(sv_chop_by_delim(&line, '#'));
+
   if (sv_eq(inst_name, cstr_as_sv("push"))) {
     line = sv_trim_left(line);
-    int operand = sv_to_int(sv_trim_right(line));
-    return (Inst) {.type = INST_PUSH, .operand = operand};
+    return (Inst) {.type = INST_PUSH, .operand = sv_to_int(operand)};
   }else if (sv_eq(inst_name, cstr_as_sv("dup"))) {
     line = sv_trim_left(line);
-    int operand = sv_to_int(sv_trim_right(line));
-    return (Inst) { .type = INST_DUP, .operand = operand };
+    return (Inst) { .type = INST_DUP, .operand = sv_to_int(operand) };
   } else if (sv_eq(inst_name, cstr_as_sv("plus"))) {
     return (Inst) { .type = INST_PLUS };
   } else if (sv_eq(inst_name, cstr_as_sv("jmp"))) {
     line = sv_trim_left(line);
-    int operand = sv_to_int(sv_trim_right(line));
-    return (Inst) { .type = INST_JMP, .operand = operand };
+    return (Inst) { .type = INST_JMP, .operand = sv_to_int(operand) };
   } else {
-    fprintf(stderr, "ERROR: unknown instruction `%.*s`",
+    fprintf(stderr, "ERROR: unknown instruction `%.*s`\n",
             (int) inst_name.count, inst_name.data);
     exit(1);
   }
@@ -431,7 +433,7 @@ size_t lvm_translate_source(String_View source,
     while (source.count > 0) {
         assert(program_size < program_capacity);
         String_View line = sv_trim(sv_chop_by_delim(&source, '\n'));
-        if (line.count > 0) {
+        if (line.count > 0 && *line.data != '#') {
             program[program_size++] = lvm_translate_line(line);
         }
     }
