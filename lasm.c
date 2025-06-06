@@ -1,5 +1,7 @@
 #include "./lvm.h"
 
+Label_Table lt = {0};
+
 char *shift(int *argc, char ***argv)
 {
   assert(*argc > 0);
@@ -36,9 +38,7 @@ int main(int argc, char **argv)
 
   String_View source = slurp_file(input_file_path);
 
-  lvm.program_size = lvm_translate_source(source,
-                                          lvm.program,
-                                          LVM_PROGRAM_CAPACITY);
+  lvm_translate_source(source,&lvm,&lt);
 
   lvm_save_program_to_file(&lvm, output_file_path);
 

@@ -17,6 +17,8 @@
 #define LVM_STACK_CAPCITY 1024
 #define LVM_PROGRAM_CAPACITY 1024
 #define LVM_EXECUTION_LIMIT 128
+#define LABEL_CAPACITY 1024
+#define UNRESOLVED_JMPS_CAPACITY 1024
 
 typedef int64_t Word;
 
@@ -319,6 +321,30 @@ typedef struct  {
   const char* data;
 } String_View;
 
+typedef struct {
+    String_View name;
+    Word addr;
+} Label;
+
+typedef struct {
+    Word addr;
+    String_View label;
+} Unresolved_Jmp;
+
+typedef struct {
+    Label labels[LABEL_CAPACITY];
+    size_t labels_size;
+    Unresolved_Jmp unresolved_jmps[UNRESOLVED_JMPS_CAPACITY];
+    size_t unresolved_jmps_size;
+} Label_Table;
+
+Word label_table_find(const Label_Table *lt, String_View name);
+void label_table_push(Label_Table *lt, String_View name, Word addr);
+void label_table_push_unresolved_jmp(Label_Table *lt, Word addr, String_View label);
+
+void lvm_translate_source(String_View source, LVM *lvm, Label_Table *lt);
+
+
 // 复合字面量（Compound Literal）允许在代码中直接创建并初始化一个匿名对象
 // (type_name) { initializer-list }
 String_View cstr_as_sv(const char *cstr)
@@ -402,42 +428,59 @@ int sv_to_int(String_View sv)
   return result;
 }
 
-Inst lvm_translate_line(String_View line) {
-  line = sv_trim_left(line);
-  String_View inst_name = sv_chop_by_delim(&line, ' ');
+void lvm_translate_source(String_View source,
+                          LVM *lvm, Label_Table *lt){
+  lvm->program_size = 0;
+  
+  while (source.count > 0) {
+    assert(lvm->program_size < LVM_PROGRAM_CAPACITY);
+    String_View line = sv_trim(sv_chop_by_delim(&source, '\n'));
+    if (line.count > 0 && *line.data != '#') {
+      String_View inst_name = sv_chop_by_delim(&line, ' ');
+      // 处理 # 和 inst 在同一行，且 #在尾部的情况
+      String_View operand = sv_trim(sv_chop_by_delim(&line, '#'));
 
-  // 处理 # 和 inst 在同一行，且 #在尾部的情况
-  String_View operand = sv_trim(sv_chop_by_delim(&line, '#'));
+      if (inst_name.count > 0 && inst_name.data[inst_name.count - 1] == ':') {
+        String_View label = {
+          .count = inst_name.count - 1,
+          .data = inst_name.data
+        };
 
-  if (sv_eq(inst_name, cstr_as_sv("push"))) {
-    line = sv_trim_left(line);
-    return (Inst) {.type = INST_PUSH, .operand = sv_to_int(operand)};
-  }else if (sv_eq(inst_name, cstr_as_sv("dup"))) {
-    line = sv_trim_left(line);
-    return (Inst) { .type = INST_DUP, .operand = sv_to_int(operand) };
-  } else if (sv_eq(inst_name, cstr_as_sv("plus"))) {
-    return (Inst) { .type = INST_PLUS };
-  } else if (sv_eq(inst_name, cstr_as_sv("jmp"))) {
-    line = sv_trim_left(line);
-    return (Inst) { .type = INST_JMP, .operand = sv_to_int(operand) };
-  } else {
-    fprintf(stderr, "ERROR: unknown instruction `%.*s`\n",
-            (int) inst_name.count, inst_name.data);
-    exit(1);
-  }
-}
+        label_table_push(lt, label, lvm->program_size);
+      } else if (sv_eq(inst_name, cstr_as_sv("push"))) {
+        lvm->program[lvm->program_size++] = (Inst) {
+          .type = INST_PUSH,
+          .operand = sv_to_int(operand)
+        };
+      } else if (sv_eq(inst_name, cstr_as_sv("dup"))) {
+        lvm->program[lvm->program_size++] = (Inst) {
+          .type = INST_DUP,
+          .operand = sv_to_int(operand)
+        };
+      } else if (sv_eq(inst_name, cstr_as_sv("plus"))) {
+        lvm->program[lvm->program_size++] = (Inst) {
+          .type = INST_PLUS
+        };
+      } else if (sv_eq(inst_name, cstr_as_sv("jmp"))) {
+        label_table_push_unresolved_jmp(
+					lt, lvm->program_size, operand);
 
-size_t lvm_translate_source(String_View source,
-                           Inst *program, size_t program_capacity){
-    size_t program_size = 0;
-    while (source.count > 0) {
-        assert(program_size < program_capacity);
-        String_View line = sv_trim(sv_chop_by_delim(&source, '\n'));
-        if (line.count > 0 && *line.data != '#') {
-            program[program_size++] = lvm_translate_line(line);
-        }
+        lvm->program[lvm->program_size++] = (Inst) {
+          .type = INST_JMP
+        };
+      } else {
+        fprintf(stderr, "ERROR: unknown instruction `%.*s`\n",
+                (int) inst_name.count, inst_name.data);
+        exit(1);
+      }
     }
-    return program_size;
+  }
+
+  for (size_t i = 0; i < lt->unresolved_jmps_size;i++) {
+    Word addr = label_table_find(lt, lt->unresolved_jmps[i].label);
+    //inst 从0开始， 替换jmp指令的地址为解析label的inst地址
+    lvm->program[lt->unresolved_jmps[i].addr].operand = addr;
+  }
 }
 
 String_View slurp_file(const char *file_path)
@@ -488,6 +531,33 @@ String_View slurp_file(const char *file_path)
     .count = n,
     .data = buffer,
   };
+}
+
+
+Word label_table_find(const Label_Table *lt, String_View name)
+{
+    for (size_t i = 0; i < lt->labels_size; ++i) {
+        if (sv_eq(lt->labels[i].name, name)) {
+            return lt->labels[i].addr;
+        }
+    }
+
+    fprintf(stderr, "ERROR: label `%.*s` does not exist\n",
+            (int) name.count, name.data);
+    exit(1);
+}
+
+void label_table_push(Label_Table *lt, String_View name, Word addr)
+{
+    assert(lt->labels_size < LABEL_CAPACITY);
+    lt->labels[lt->labels_size++] = (Label) {.name = name, .addr = addr};
+}
+
+void label_table_push_unresolved_jmp(Label_Table *lt, Word addr, String_View label)
+{
+    assert(lt->unresolved_jmps_size < UNRESOLVED_JMPS_CAPACITY);
+    lt->unresolved_jmps[lt->unresolved_jmps_size++] =
+        (Unresolved_Jmp) {.addr = addr, .label = label};
 }
 
 #endif
