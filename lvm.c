@@ -57,7 +57,7 @@ int main(int argc, char *argv[])
     exit(1);
   }
   
-  lvm_load_program_from_file(&lvm, argv[1]);
+  lvm_load_program_from_file(&lvm, input_file_path);
   Err err = lvm_execute_program(&lvm,limit);
   
   lvm_dump_stack(stdout,&lvm);
