@@ -2,6 +2,9 @@
 
 Label_Table lt = {0};
 
+char *shift(int *argc, char ***argv);
+void usage(FILE *stream, const char *program);
+
 char *shift(int *argc, char ***argv)
 {
   assert(*argc > 0);

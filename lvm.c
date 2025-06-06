@@ -1,6 +1,9 @@
 #include "lvm.h"
 #include <stdio.h>
 
+char *shift(int *argc, char ***argv);
+void usage(FILE *stream, const char *program);
+
 char *shift(int *argc, char ***argv)
 {
     assert(*argc > 0);

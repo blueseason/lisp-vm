@@ -32,6 +32,24 @@ typedef enum {
   ERR_DIV_BY_ZERO,
 } Err;
 
+typedef enum {
+  INST_NOP = 0,
+  INST_PUSH,
+  INST_DUP,
+  INST_PLUS,
+  INST_MINUS,
+  INST_MULT,
+  INST_DIV,
+  INST_JMP,
+  INST_JMP_IF,
+  INST_EQ,
+  INST_HALT,
+  INST_PRINT_DEBUG,
+} Inst_Type;
+
+const char *err_as_cstr(Err err);
+const char *inst_type_as_cstr(Inst_Type type);
+
 const char *err_as_cstr(Err err)
 {
   switch (err) {
@@ -54,20 +72,6 @@ const char *err_as_cstr(Err err)
   }
 }
 
-typedef enum {
-  INST_NOP = 0,
-  INST_PUSH,
-  INST_DUP,
-  INST_PLUS,
-  INST_MINUS,
-  INST_MULT,
-  INST_DIV,
-  INST_JMP,
-  INST_JMP_IF,
-  INST_EQ,
-  INST_HALT,
-  INST_PRINT_DEBUG,
-} Inst_Type;
 
 const char *inst_type_as_cstr(Inst_Type type)
 {
@@ -113,6 +117,14 @@ typedef struct {
 #define MAKE_INST_DUP(addr)   {.type = INST_DUP, .operand = (addr)}
 #define MAKE_INST_HALT        {.type = INST_HALT, .operand = (addr)}
 
+
+Err lvm_execute_inst(LVM* lvm);
+Err lvm_execute_program(LVM *lvm, int limit);
+void lvm_dump_stack(FILE* stream, const LVM* lvm);
+
+void lvm_load_program_from_memory(LVM* lvm, Inst * program,size_t program_size);
+void lvm_load_program_from_file(LVM* lvm, const char* file_path);
+void lvm_save_program_to_file(const LVM* lvm, const char* file_path);
 
 Err lvm_execute_inst(LVM* lvm) {
   if (lvm->pc < 0 || lvm->pc >= lvm->program_size) {
@@ -247,6 +259,7 @@ void lvm_dump_stack(FILE* stream, const LVM* lvm) {
   }
 }
 
+
 void lvm_load_program_from_memory(LVM* lvm, Inst * program,size_t program_size) {
   assert(program_size < LVM_PROGRAM_CAPACITY);
   memcpy(lvm->program,program,sizeof(program[0])* program_size);
@@ -344,6 +357,17 @@ void label_table_push_unresolved_jmp(Label_Table *lt, Word addr, String_View lab
 
 void lvm_translate_source(String_View source, LVM *lvm, Label_Table *lt);
 
+String_View cstr_as_sv(const char *cstr);
+String_View sv_trim_left(String_View sv);
+String_View sv_trim_right(String_View sv);
+String_View sv_trim(String_View sv);
+String_View sv_chop_by_delim(String_View *sv, char delim);
+int sv_eq(String_View a, String_View b);
+int sv_to_int(String_View sv);
+
+void lvm_translate_source(String_View source,
+                          LVM *lvm, Label_Table *lt);
+String_View slurp_file(const char *file_path);
 
 // 复合字面量（Compound Literal）允许在代码中直接创建并初始化一个匿名对象
 // (type_name) { initializer-list }
