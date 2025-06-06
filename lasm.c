@@ -1,23 +1,46 @@
 #include "./lvm.h"
 
+char *shift(int *argc, char ***argv)
+{
+  assert(*argc > 0);
+  char *result = **argv;
+  *argv += 1;
+  *argc -= 1;
+  return result;
+}
+
+void usage(FILE *stream, const char *program)
+{
+  fprintf(stream, "Usage: %s <input.lasm> <output.lvm>\n",program);
+}
+
+
 int main(int argc, char **argv)
 {
-    if (argc < 3) {
-        fprintf(stderr, "Usage: ./lasm <input.lasm> <output.lvm>\n");
-        fprintf(stderr, "ERROR: expected input and output\n");
-        exit(1);
-    }
+  const char* program = shift(&argc, &argv);
 
-    const char *input_file_path = argv[1];
-    const char *output_file_path = argv[2];
+  if (argc == 0) {
+    usage(stderr, program);
+    fprintf(stderr, "ERROR: expected input\n");
+    exit(1);
+  }
+  
+  const char *input_file_path = shift(&argc, &argv);
 
-    String_View source = slurp_file(input_file_path);
+  if (argc == 0) {
+    usage(stderr, program);
+    fprintf(stderr, "ERROR: expected output\n");
+    exit(1);
+  }
+  const char *output_file_path = shift(&argc, &argv);
 
-    lvm.program_size = lvm_translate_source(source,
+  String_View source = slurp_file(input_file_path);
+
+  lvm.program_size = lvm_translate_source(source,
                                           lvm.program,
                                           LVM_PROGRAM_CAPACITY);
 
-    lvm_save_program_to_file(lvm.program, lvm.program_size, output_file_path);
+  lvm_save_program_to_file(&lvm, output_file_path);
 
-    return 0;
+  return 0;
 }
