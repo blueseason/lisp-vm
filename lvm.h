@@ -437,9 +437,7 @@ void lvm_translate_source(String_View source,
     String_View line = sv_trim(sv_chop_by_delim(&source, '\n'));
     if (line.count > 0 && *line.data != '#') {
       String_View inst_name = sv_chop_by_delim(&line, ' ');
-      // 处理 # 和 inst 在同一行，且 #在尾部的情况
-      String_View operand = sv_trim(sv_chop_by_delim(&line, '#'));
-
+      
       if (inst_name.count > 0 && inst_name.data[inst_name.count - 1] == ':') {
         String_View label = {
           .count = inst_name.count - 1,
@@ -447,31 +445,46 @@ void lvm_translate_source(String_View source,
         };
 
         label_table_push(lt, label, lvm->program_size);
-      } else if (sv_eq(inst_name, cstr_as_sv("push"))) {
-        lvm->program[lvm->program_size++] = (Inst) {
-          .type = INST_PUSH,
-          .operand = sv_to_int(operand)
-        };
-      } else if (sv_eq(inst_name, cstr_as_sv("dup"))) {
-        lvm->program[lvm->program_size++] = (Inst) {
-          .type = INST_DUP,
-          .operand = sv_to_int(operand)
-        };
-      } else if (sv_eq(inst_name, cstr_as_sv("plus"))) {
-        lvm->program[lvm->program_size++] = (Inst) {
-          .type = INST_PLUS
-        };
-      } else if (sv_eq(inst_name, cstr_as_sv("jmp"))) {
-        label_table_push_unresolved_jmp(
-					lt, lvm->program_size, operand);
-
-        lvm->program[lvm->program_size++] = (Inst) {
-          .type = INST_JMP
-        };
-      } else {
-        fprintf(stderr, "ERROR: unknown instruction `%.*s`\n",
-                (int) inst_name.count, inst_name.data);
-        exit(1);
+	inst_name = sv_trim(sv_chop_by_delim(&line, ' '));
+      }
+      if (inst_name.count > 0) {
+	// 处理 # 和 inst 在同一行，且 #在尾部的情况
+	String_View operand = sv_trim(sv_chop_by_delim(&line, '#'));
+	if (sv_eq(inst_name, cstr_as_sv("nop"))) {
+          lvm->program[lvm->program_size++] = (Inst) {
+            .type = INST_NOP,
+	  };
+	} else if (sv_eq(inst_name, cstr_as_sv("push"))) {
+          lvm->program[lvm->program_size++] = (Inst) {
+            .type = INST_PUSH,
+            .operand = sv_to_int(operand)
+          };
+	} else if (sv_eq(inst_name, cstr_as_sv("dup"))) {
+          lvm->program[lvm->program_size++] = (Inst) {
+            .type = INST_DUP,
+            .operand = sv_to_int(operand)
+          };
+	} else if (sv_eq(inst_name, cstr_as_sv("plus"))) {
+          lvm->program[lvm->program_size++] = (Inst) {
+            .type = INST_PLUS
+          };
+	} else if (sv_eq(inst_name, cstr_as_sv("jmp"))) {
+	  if (operand.count > 0 && isdigit(*operand.data)) {
+	    lvm->program[lvm->program_size++] = (Inst) {
+              .type = INST_JMP,
+	      .operand = sv_to_int(operand),
+            };
+	  }else {
+            label_table_push_unresolved_jmp(lt, lvm->program_size, operand);
+            lvm->program[lvm->program_size++] = (Inst) {
+              .type = INST_JMP
+            };
+	  }
+	} else {
+          fprintf(stderr, "ERROR: unknown instruction `%.*s`\n",
+                  (int) inst_name.count, inst_name.data);
+          exit(1);
+	}
       }
     }
   }
