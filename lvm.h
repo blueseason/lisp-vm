@@ -668,7 +668,19 @@ void lvm_translate_source(String_View source,
           lvm->program[lvm->program_size++] = (Inst) {
             .type = INST_PLUSI
           };
-	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_JMP)))) {
+	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_MINUSI)))) {
+          lvm->program[lvm->program_size++] = (Inst) {
+            .type = INST_MINUSI
+          };
+        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_DIVI)))) {
+          lvm->program[lvm->program_size++] = (Inst) {
+            .type = INST_DIVI
+          };
+        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_MULTI)))) {
+          lvm->program[lvm->program_size++] = (Inst) {
+            .type = INST_MULTI
+          };
+        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_JMP)))) {
 	  if (operand.count > 0 && isdigit(*operand.data)) {
 	    lvm->program[lvm->program_size++] = (Inst) {
               .type = INST_JMP,
@@ -680,7 +692,7 @@ void lvm_translate_source(String_View source,
               .type = INST_JMP
             };
 	  }
-	}else if (sv_eq(token, cstr_as_sv(inst_name(INST_JMP_IF)))) {
+	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_JMP_IF)))) {
           if (operand.count > 0 && isdigit(*operand.data)) {
             lvm->program[lvm->program_size++] = (Inst) {
               .type = INST_JMP_IF,
@@ -692,15 +704,19 @@ void lvm_translate_source(String_View source,
               .type = INST_JMP_IF,
             };
           }
-        }else if (sv_eq(token, cstr_as_sv(inst_name(INST_PLUSF)))) {
+        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_PLUSF)))) {
           lvm->program[lvm->program_size++] = (Inst) {
             .type = INST_PLUSF
           };
-        }else if (sv_eq(token, cstr_as_sv(inst_name(INST_DIVF)))) {
+        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_MINUSF)))) {
+          lvm->program[lvm->program_size++] = (Inst) {
+            .type = INST_MINUSF
+          };
+        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_DIVF)))) {
           lvm->program[lvm->program_size++] = (Inst) {
             .type = INST_DIVF
           };
-        }else if (sv_eq(token, cstr_as_sv(inst_name(INST_MULTF)))) {
+        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_MULTF)))) {
           lvm->program[lvm->program_size++] = (Inst) {
             .type = INST_MULTF
           };
@@ -708,41 +724,41 @@ void lvm_translate_source(String_View source,
           lvm->program[lvm->program_size++] = (Inst) {
             .type = INST_SWAP,
 	    .operand = { .as_i64 = sv_to_int(operand) },
-        };
-      } else if (sv_eq(token, cstr_as_sv(inst_name(INST_HALT)))) {
-        lvm->program[lvm->program_size++] = (Inst) {
-          .type = INST_HALT
-        };
-      } else if (sv_eq(token, cstr_as_sv(inst_name(INST_EQ)))) {
-        lvm->program[lvm->program_size++] = (Inst) {
-          .type = INST_EQ,
-        };
-      } else if (sv_eq(token, cstr_as_sv(inst_name(INST_GEF)))) {
-        lvm->program[lvm->program_size++] = (Inst) {
-          .type = INST_GEF,
-        };
-      } else if (sv_eq(token, cstr_as_sv(inst_name(INST_NOT)))) {
-        lvm->program[lvm->program_size++] = (Inst) {
-          .type = INST_NOT,
-        };
-      } else if (sv_eq(token, cstr_as_sv(inst_name(INST_PRINT_DEBUG)))) {
-        lvm->program[lvm->program_size++] = (Inst) {
-          .type = INST_PRINT_DEBUG,
-        };
-      }else {
-        fprintf(stderr, "ERROR: unknown instruction `%.*s`\n",
-                (int) token.count, token.data);
-        exit(1);
+          };
+        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_HALT)))) {
+          lvm->program[lvm->program_size++] = (Inst) {
+            .type = INST_HALT
+          };
+	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_EQ)))) {
+          lvm->program[lvm->program_size++] = (Inst) {
+            .type = INST_EQ,
+          };
+	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_GEF)))) {
+          lvm->program[lvm->program_size++] = (Inst) {
+            .type = INST_GEF,
+          };
+	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_NOT)))) {
+          lvm->program[lvm->program_size++] = (Inst) {
+            .type = INST_NOT,
+          };
+	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_PRINT_DEBUG)))) {
+          lvm->program[lvm->program_size++] = (Inst) {
+            .type = INST_PRINT_DEBUG,
+          };
+	} else {
+          fprintf(stderr, "ERROR: unknown instruction `%.*s`\n",
+                  (int) token.count, token.data);
+          exit(1);
+	}
       }
     }
   }
-}
 
-for (size_t i = 0; i < lt->defered_operands_size;i++) {
-  Inst_Addr addr = label_table_find(lt, lt->defered_operands[i].label);
-  //inst 从0开始， 替换jmp指令的地址为解析label的inst地址
-  lvm->program[lt->defered_operands[i].addr].operand.as_u64 = addr;
-}
+  for (size_t i = 0; i < lt->defered_operands_size;i++) {
+    Inst_Addr addr = label_table_find(lt, lt->defered_operands[i].label);
+    //inst 从0开始， 替换jmp指令的地址为解析label的inst地址
+    lvm->program[lt->defered_operands[i].addr].operand.as_u64 = addr;
+  }
 }
 
 String_View slurp_file(const char *file_path)

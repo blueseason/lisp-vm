@@ -1,0 +1,16 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with ${{ matrix.compiler }}
+        run: make all
+        env:
+          CC: ${{ matrix.compiler }}
+          CXX: ${{ matrix.compiler }}++
