@@ -15,7 +15,8 @@
 // 4. memchr
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
-#define LVM_STACK_CAPCITY 1024
+#define LVM_STACK_CAPACITY 1024
+#define LVM_NATIVES_CAPACITY 1024
 #define LVM_PROGRAM_CAPACITY 1024
 #define LVM_EXECUTION_LIMIT 128
 #define LABEL_CAPACITY 1024
@@ -61,6 +62,9 @@ typedef enum {
   INST_JMP,
   INST_JMP_IF,
   INST_EQ,
+  INST_RET,
+  INST_CALL,
+  INST_NATIVE,
   INST_HALT,
   INST_NOT,
   INST_GEF,
@@ -98,6 +102,9 @@ const char *inst_name(Inst_Type type)
     case INST_SWAP:        return "swap";
     case INST_NOT:         return "not";
     case INST_GEF:         return "gef";
+    case INST_RET:         return "ret";
+    case INST_CALL:        return "call";
+    case INST_NATIVE:      return "native";
     case NUMBER_OF_INSTS:
     default: assert(0 && "inst_name: unreachable");
     }
@@ -126,6 +133,9 @@ int inst_has_operand(Inst_Type type)
     case INST_SWAP:        return 1;
     case INST_NOT:         return 0;
     case INST_GEF:         return 0;
+    case INST_RET:         return 0;
+    case INST_CALL:        return 1;
+    case INST_NATIVE:      return 1;
     case NUMBER_OF_INSTS:
     default: assert(0 && "inst_name: unreachable");
     }
@@ -162,25 +172,38 @@ typedef struct {
   Word operand;
 } Inst;
 
-typedef struct {
-    Word stack[LVM_STACK_CAPCITY];
+typedef struct LVM LVM;
+
+typedef Err (*LVM_Native)(LVM*);
+
+struct LVM {
+    Word stack[LVM_STACK_CAPACITY];
     uint64_t stack_size;
     
     Inst program[LVM_PROGRAM_CAPACITY];
     uint64_t program_size;
     Inst_Addr pc;
+
+    LVM_Native natives[LVM_NATIVES_CAPACITY];
+    size_t natives_size;
     
     int halt;
-} LVM;
+};
 
 
 Err lvm_execute_inst(LVM* lvm);
 Err lvm_execute_program(LVM *lvm, int limit);
 void lvm_dump_stack(FILE* stream, const LVM* lvm);
 
+void lvm_push_native(LVM* lvm, LVM_Native native);
 void lvm_load_program_from_memory(LVM* lvm, Inst * program,size_t program_size);
 void lvm_load_program_from_file(LVM* lvm, const char* file_path);
 void lvm_save_program_to_file(const LVM* lvm, const char* file_path);
+
+void lvm_push_native(LVM* lvm, LVM_Native native) {
+  assert(lvm->natives_size < LVM_NATIVES_CAPACITY);
+  lvm->natives[lvm->natives_size++] = native;
+}
 
 Err lvm_execute_inst(LVM* lvm) {
   if (lvm->pc >= lvm->program_size) {
@@ -195,14 +218,14 @@ Err lvm_execute_inst(LVM* lvm) {
     break;
   
   case INST_PUSH:
-    if (lvm->stack_size >= LVM_STACK_CAPCITY) {
+    if (lvm->stack_size >= LVM_STACK_CAPACITY) {
       return ERR_STACK_UNDERFLOW;
     }
     lvm->stack[lvm->stack_size++]= inst.operand;
     lvm->pc += 1;
     break;
   case INST_DROP:
-    if (lvm->stack_size >= LVM_STACK_CAPCITY) {
+    if (lvm->stack_size >= LVM_STACK_CAPACITY) {
       return ERR_STACK_OVERFLOW;
     }
     lvm->stack_size -= 1;
@@ -282,6 +305,29 @@ Err lvm_execute_inst(LVM* lvm) {
   case INST_JMP:
     lvm->pc = inst.operand.as_u64;
     break;
+  case INST_RET:
+    if (lvm->stack_size < 1) {
+      return ERR_STACK_UNDERFLOW;
+    }
+
+    lvm->pc = lvm->stack[lvm->stack_size - 1].as_u64;
+    lvm->stack_size -= 1;
+    break;
+  case INST_CALL:
+    if (lvm->stack_size >= LVM_STACK_CAPACITY) {
+      return ERR_STACK_OVERFLOW;
+    }
+
+    lvm->stack[lvm->stack_size++].as_u64 = lvm->pc + 1;
+    lvm->pc = inst.operand.as_u64;
+    break;
+  case INST_NATIVE:
+    if (inst.operand.as_u64 > lvm->natives_size) {
+      return ERR_ILLEGAL_OPERAND;
+    }
+    lvm->natives[inst.operand.as_u64](lvm);
+    lvm->pc += 1;
+    break;
   case INST_HALT:
     lvm->halt = 1;
     break;
@@ -326,7 +372,7 @@ Err lvm_execute_inst(LVM* lvm) {
     lvm->pc +=1;
     break;
   case INST_DUP:
-    if (lvm->stack_size >= LVM_STACK_CAPCITY) {
+    if (lvm->stack_size >= LVM_STACK_CAPACITY) {
       return ERR_STACK_OVERFLOW;
     }
     if (lvm->stack_size - inst.operand.as_u64 <=0) {
@@ -713,7 +759,23 @@ void lvm_translate_source(String_View source,
           lvm->program[lvm->program_size++] = (Inst) {
             .type = INST_HALT
           };
-	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_EQ)))) {
+	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_RET)))) {
+          lvm->program[lvm->program_size++] = (Inst) {
+            .type = INST_RET,
+          };
+        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_CALL)))) {
+          if (operand.count > 0 && isdigit(*operand.data)) {
+            lvm->program[lvm->program_size++] = (Inst) {
+              .type = INST_CALL,
+              .operand = { .as_i64 = sv_to_int(operand) },
+            };
+	  } else {
+            label_table_push_defered_operand(lt, lvm->program_size, operand);
+            lvm->program[lvm->program_size++] = (Inst) {
+              .type = INST_CALL,
+            };
+          }
+	}  else if (sv_eq(token, cstr_as_sv(inst_name(INST_EQ)))) {
           lvm->program[lvm->program_size++] = (Inst) {
             .type = INST_EQ,
           };
@@ -733,9 +795,14 @@ void lvm_translate_source(String_View source,
           lvm->program[lvm->program_size++] = (Inst) {
             .type = INST_PRINT_DEBUG,
           };
-	} else {
+	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_NATIVE)))) {
+          lvm->program[lvm->program_size++] = (Inst) {
+            .type = INST_NATIVE,
+            .operand = { .as_i64 = sv_to_int(operand) },
+          };
+        } else {
           fprintf(stderr, " %s:%d: ERROR: unknown instruction `%.*s` \n",
-                 input_file_path, line_number, (int) token.count, token.data);
+                  input_file_path, line_number, (int) token.count, token.data);
           exit(1);
 	}
       }

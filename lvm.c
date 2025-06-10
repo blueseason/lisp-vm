@@ -19,6 +19,30 @@ void usage(FILE *stream, const char *program)
 }
 
 
+static Err lvm_alloc(LVM *lvm)
+{
+    if (lvm->stack_size < 1) {
+        return ERR_STACK_UNDERFLOW;
+    }
+
+    lvm->stack[lvm->stack_size - 1].as_ptr = malloc(lvm->stack[lvm->stack_size - 1].as_u64);
+
+    return ERR_OK;
+}
+
+static Err lvm_free(LVM *lvm)
+{
+    if (lvm->stack_size < 1) {
+        return ERR_STACK_UNDERFLOW;
+    }
+
+    free(lvm->stack[lvm->stack_size - 1].as_ptr);
+    lvm->stack_size -= 1;
+
+    return ERR_OK;
+}
+
+
 int main(int argc, char *argv[])
 {
   const char *program = shift(&argc, &argv);
@@ -64,6 +88,8 @@ int main(int argc, char *argv[])
   }
   
   lvm_load_program_from_file(&lvm, input_file_path);
+  lvm_push_native(&lvm, lvm_alloc);
+  lvm_push_native(&lvm, lvm_free);
 
   if (!debug) {
     Err err = lvm_execute_program(&lvm,limit);
@@ -76,6 +102,9 @@ int main(int argc, char *argv[])
   }else {
     while (limit != 0 && !lvm.halt) {
       lvm_dump_stack(stdout, &lvm);
+      printf("Instruction: %s %" PRIu64 "\n",
+             inst_name(lvm.program[lvm.pc].type),
+	     lvm.program[lvm.pc].operand.as_u64);
       getchar();
       Err err = lvm_execute_inst(&lvm);
       if (err != ERR_OK) {

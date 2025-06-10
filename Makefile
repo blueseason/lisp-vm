@@ -2,7 +2,7 @@
 # -Wmissing-prototypes 检查未声明原型的函数
 CFLAGS=-Wall -Wextra -std=c11 -pedantic -Wswitch-enum -Wmissing-prototypes
 LIBS=
-EXAMPLES = ./examples/fib.lvm ./examples/test.lvm ./examples/testf.lvm ./examples/calc.lvm ./examples/pi.lvm
+EXAMPLES = $(patsubst %.lasm,%.lvm,$(wildcard ./examples/*.lasm))
 PHONY: all
 all: lasm lvm dlsm
 
