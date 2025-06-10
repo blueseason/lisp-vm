@@ -15,7 +15,7 @@ char *shift(int *argc, char ***argv)
 
 void usage(FILE *stream, const char *program)
 {
-    fprintf(stream, "Usage: %s -i <input.lvm> [-l <limit>] [-h]\n", program);
+    fprintf(stream, "Usage: %s -i <input.lvm> [-l <limit>] [-h] [-d]\n", program);
 }
 
 
@@ -24,6 +24,7 @@ int main(int argc, char *argv[])
   const char *program = shift(&argc, &argv);
   const char *input_file_path = NULL;
   int limit = -1;
+  int debug = 0;
 
   while (argc > 0) {
     const char *flag = shift(&argc, &argv);
@@ -47,6 +48,8 @@ int main(int argc, char *argv[])
     } else if (strcmp(flag, "-h") == 0) {
       usage(stdout, program);
       exit(0);
+    } else if (strcmp(flag, "-d") == 0) {
+      debug = 1;
     } else {
       usage(stderr, program);
       fprintf(stderr, "ERROR: Unknown flag `%s`\n", flag);
@@ -61,12 +64,29 @@ int main(int argc, char *argv[])
   }
   
   lvm_load_program_from_file(&lvm, input_file_path);
-  Err err = lvm_execute_program(&lvm,limit);
+
+  if (!debug) {
+    Err err = lvm_execute_program(&lvm,limit);
   
-  lvm_dump_stack(stdout,&lvm);
-  if (err != ERR_OK) {
-    fprintf(stderr, "ERROR: %s\n", err_as_cstr(err));
-    exit(1);
+    lvm_dump_stack(stdout,&lvm);
+    if (err != ERR_OK) {
+      fprintf(stderr, "ERROR: %s\n", err_as_cstr(err));
+      exit(1);
+    }    
+  }else {
+    while (limit != 0 && !lvm.halt) {
+      lvm_dump_stack(stdout, &lvm);
+      getchar();
+      Err err = lvm_execute_inst(&lvm);
+      if (err != ERR_OK) {
+        fprintf(stderr, "ERROR: %s\n", err_as_cstr(err));
+        return 1;
+      }
+      if (limit > 0) {
+        --limit;
+      }
+    }
   }
+
   return 0;
 }
