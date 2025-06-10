@@ -28,7 +28,10 @@ loop:
    gef
 
    jmp_if loop
+ 
+   swap 1
+   drop
+   swap 1
+   drop
 
-   print_debug
-   
    halt

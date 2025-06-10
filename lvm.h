@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <string.h>
 #include <errno.h>
+#include <inttypes.h>
 
 // 1. designated init
 // 2. c99 c11区别
@@ -19,6 +20,7 @@
 #define LVM_EXECUTION_LIMIT 128
 #define LABEL_CAPACITY 1024
 #define DEFERED_OPERANDS_CAPACITY 1024
+#define NUMBER_LITERAL_CAPACITY 1024
 
 typedef uint64_t Inst_Addr;
 
@@ -45,6 +47,7 @@ typedef enum {
 typedef enum {
   INST_NOP = 0,
   INST_PUSH,
+  INST_DROP,
   INST_DUP,
   INST_SWAP,
   INST_PLUSI,
@@ -77,6 +80,7 @@ const char *inst_name(Inst_Type type)
     switch (type) {
     case INST_NOP:         return "nop";
     case INST_PUSH:        return "push";
+    case INST_DROP:        return "drop";
     case INST_DUP:         return "dup";
     case INST_PLUSI:       return "plusi";
     case INST_MINUSI:      return "minusi";
@@ -103,6 +107,7 @@ int inst_has_operand(Inst_Type type)
 {
     switch (type) {
     case INST_NOP:         return 0;
+    case INST_DROP:        return 0;
     case INST_PUSH:        return 1;
     case INST_DUP:         return 1;
     case INST_PLUSI:       return 0;
@@ -152,34 +157,6 @@ const char *err_as_cstr(Err err)
   }
 }
 
-
-const char *inst_type_as_cstr(Inst_Type type)
-{
-  switch (type) {
-  case INST_NOP:		return "INST_NOP";
-  case INST_PUSH:		return "INST_PUSH";
-  case INST_PLUSI:		return "INST_PLUSI";
-  case INST_MINUSI:		return "INST_MINUSI";
-  case INST_MULTI:		return "INST_MULTI";
-  case INST_DIVI:		return "INST_DIVI";
-  case INST_PLUSF:		return "INST_PLUSF";
-  case INST_MINUSF:		return "INST_MINUSF";
-  case INST_MULTF:		return "INST_MULTF";
-  case INST_DIVF:		return "INST_DIVF";
-  case INST_JMP:		return "INST_JMP";
-  case INST_HALT:		return "INST_HALT";
-  case INST_JMP_IF:		return "INST_JMP_IF";
-  case INST_EQ:			return "INST_EQ";
-  case INST_PRINT_DEBUG:	return "INST_PRINT_DEBUG";
-  case INST_DUP:		return "INST_DUP";
-  case INST_SWAP:		return "INST_SWAP";
-  case INST_NOT:		return "INST_NOT";
-  case INST_GEF:		return "INST_GEF";
-  case NUMBER_OF_INSTS:
-  default: assert(0 && "inst_type_as_cstr: unreachable");
-  }
-}
-
 typedef struct {
   Inst_Type type;
   Word operand;
@@ -222,6 +199,13 @@ Err lvm_execute_inst(LVM* lvm) {
       return ERR_STACK_UNDERFLOW;
     }
     lvm->stack[lvm->stack_size++]= inst.operand;
+    lvm->pc += 1;
+    break;
+  case INST_DROP:
+    if (lvm->stack_size >= LVM_STACK_CAPCITY) {
+      return ERR_STACK_OVERFLOW;
+    }
+    lvm->stack_size -= 1;
     lvm->pc += 1;
     break;
   case INST_PLUSI:
@@ -333,7 +317,7 @@ Err lvm_execute_inst(LVM* lvm) {
     if (lvm->stack_size < 1) {
       return ERR_STACK_UNDERFLOW;
     }
-    fprintf(stdout, "  u64: %lu, i64: %ld, f64: %lf, ptr: %p\n",
+    fprintf(stdout, "  u64: %" PRIu64 ", i64: %" PRId64 ", f64: %lf, ptr: %p\n",
             lvm->stack[lvm->stack_size - 1].as_u64,
             lvm->stack[lvm->stack_size - 1].as_i64,
             lvm->stack[lvm->stack_size - 1].as_f64,
@@ -397,7 +381,7 @@ void lvm_dump_stack(FILE* stream, const LVM* lvm) {
   fprintf(stream, "Stack:\n");
   if (lvm->stack_size > 0) {
     for (Inst_Addr i = 0; i < lvm->stack_size; ++i) {
-      fprintf(stream, "  u64: %lu, i64: %ld, f64: %lf, ptr: %p\n",
+      fprintf(stream, "  u64: %" PRIu64 ", i64: %" PRId64 ", f64: %lf, ptr: %p\n",
               lvm->stack[i].as_u64,
               lvm->stack[i].as_i64,
               lvm->stack[i].as_f64,
@@ -418,21 +402,21 @@ void lvm_load_program_from_memory(LVM* lvm, Inst * program,size_t program_size) 
 void lvm_load_program_from_file(LVM* lvm, const char* file_path) {
   FILE* f = fopen(file_path, "rb");
   if (f==NULL) {
-    fprintf(stderr, "ERROR: Cound not open file `%s` : %s\n",
+    fprintf(stderr, "ERROR: Cound not open file %s : %s\n",
 	    file_path,strerror(errno));
     exit(1);
   }
 
   //seek to end
   if (fseek(f, 0, SEEK_END) < 0) {
-    fprintf(stderr, "ERROR: Cound not read file `%s` : %s\n",
+    fprintf(stderr, "ERROR: Cound not set position at end of  file %s : %s\n",
 	    file_path,strerror(errno));
     exit(1);
   }
 
   long m = ftell(f);
   if (m<0) {
-    fprintf(stderr, "ERROR: Cound not read file `%s` : %s\n",
+    fprintf(stderr, "ERROR: Cound not determine length of file %s : %s\n",
 	    file_path,strerror(errno));
     exit(1);    
   }
@@ -441,7 +425,7 @@ void lvm_load_program_from_file(LVM* lvm, const char* file_path) {
   assert((size_t) m <= LVM_PROGRAM_CAPACITY * sizeof(lvm->program[0]));
 
   if (fseek(f, 0, SEEK_SET) < 0) {
-        fprintf(stderr, "ERROR: Could not read file `%s`: %s\n",
+        fprintf(stderr, "ERROR: Could not rewind file %s : %s\n",
                 file_path, strerror(errno));
         exit(1);
     }
@@ -506,7 +490,7 @@ Inst_Addr label_table_find(const Lasm *lt, String_View name);
 void label_table_push(Lasm *lt, String_View name, Inst_Addr addr);
 void label_table_push_defered_operand(Lasm *lt, Inst_Addr addr, String_View label);
 
-void lvm_translate_source(String_View source, LVM *lvm, Lasm *lt);
+void lvm_translate_source(String_View source, LVM *lvm, Lasm *lt, const char *input_file_path);
 
 String_View cstr_as_sv(const char *cstr);
 String_View sv_trim_left(String_View sv);
@@ -516,15 +500,13 @@ String_View sv_chop_by_delim(String_View *sv, char delim);
 int sv_eq(String_View a, String_View b);
 int sv_to_int(String_View sv);
 
-void lvm_translate_source(String_View source,
-                          LVM *lvm, Lasm *lt);
 String_View slurp_file(const char *file_path);
 
 
 Word number_literal_as_word(String_View sv)
 {
-    assert(sv.count < 1024);
-    char cstr[sv.count + 1];
+    assert(sv.count < NUMBER_LITERAL_CAPACITY);
+    char cstr[NUMBER_LITERAL_CAPACITY + 1];
     char *endptr = 0;
 
     memcpy(cstr, sv.data, sv.count);
@@ -629,12 +611,14 @@ int sv_to_int(String_View sv)
 }
 
 void lvm_translate_source(String_View source,
-                          LVM *lvm, Lasm *lt){
+                          LVM *lvm, Lasm *lt, const char *input_file_path){
   lvm->program_size = 0;
+  int line_number = 0;
   
   while (source.count > 0) {
     assert(lvm->program_size < LVM_PROGRAM_CAPACITY);
     String_View line = sv_trim(sv_chop_by_delim(&source, '\n'));
+    line_number += 1;
     if (line.count > 0 && *line.data != '#') {
       String_View token = sv_chop_by_delim(&line, ' ');
       
@@ -741,13 +725,17 @@ void lvm_translate_source(String_View source,
           lvm->program[lvm->program_size++] = (Inst) {
             .type = INST_NOT,
           };
-	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_PRINT_DEBUG)))) {
+	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_DROP)))) {
+          lvm->program[lvm->program_size++] = (Inst) {
+            .type = INST_DROP,
+          };
+        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_PRINT_DEBUG)))) {
           lvm->program[lvm->program_size++] = (Inst) {
             .type = INST_PRINT_DEBUG,
           };
 	} else {
-          fprintf(stderr, "ERROR: unknown instruction `%.*s`\n",
-                  (int) token.count, token.data);
+          fprintf(stderr, " %s:%d: ERROR: unknown instruction `%.*s` \n",
+                 input_file_path, line_number, (int) token.count, token.data);
           exit(1);
 	}
       }

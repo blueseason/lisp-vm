@@ -1,3 +1,4 @@
+#include <inttypes.h>
 #include "./lvm.h"
 
 //LVM lvm = {0};
@@ -17,7 +18,7 @@ int main(int argc, char *argv[])
     for (Inst_Addr i = 0; i < lvm.program_size; ++i) {
       printf("%s", inst_name(lvm.program[i].type));
       if (inst_has_operand(lvm.program[i].type)) {
-            printf(" %ld", lvm.program[i].operand.as_i64);
+            printf(" %" PRIu64 "", lvm.program[i].operand.as_i64);
 	}
 	printf("\n");
     }
