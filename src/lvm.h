@@ -77,9 +77,36 @@ typedef enum {
 // Designated Initializers
 // [INDEX] = value：指定初始化器（C99 特性）
 
+typedef struct  {
+  size_t count;
+  const char* data;
+} String_View;
+
+String_View cstr_as_sv(const char *cstr);
+String_View sv_trim_left(String_View sv);
+String_View sv_trim_right(String_View sv);
+String_View sv_trim(String_View sv);
+String_View sv_chop_by_delim(String_View *sv, char delim);
+int sv_eq(String_View a, String_View b);
+int sv_to_int(String_View sv);
+
+String_View slurp_file(const char *file_path);
+
 const char *inst_name(Inst_Type type);
 int inst_has_operand(Inst_Type type);
+int inst_by_name(String_View name, Inst_Type *output);
 
+int inst_by_name(String_View name, Inst_Type *output)
+{
+    for (Inst_Type type = (Inst_Type) 0; type < NUMBER_OF_INSTS; type += 1) {
+        if (sv_eq(cstr_as_sv(inst_name(type)), name)) {
+            *output = type;
+            return 1;
+        }
+    }
+
+    return 0;
+}
 
 const char *inst_name(Inst_Type type)
 {
@@ -513,10 +540,6 @@ void lvm_save_program_to_file(const LVM* lvm, const char* file_path) {
 
 LVM lvm = {0};
 
-typedef struct  {
-  size_t count;
-  const char* data;
-} String_View;
 
 typedef struct {
     String_View name;
@@ -535,7 +558,7 @@ typedef struct {
     size_t defered_operands_size;
 } Lasm;
 
-Word number_literal_as_word(String_View sv);
+int number_literal_as_word(String_View sv, Word *output);
 
 Inst_Addr label_table_find(const Lasm *lt, String_View name);
 void label_table_push(Lasm *lt, String_View name, Inst_Addr addr);
@@ -543,18 +566,7 @@ void label_table_push_defered_operand(Lasm *lt, Inst_Addr addr, String_View labe
 
 void lvm_translate_source(String_View source, LVM *lvm, Lasm *lt, const char *input_file_path);
 
-String_View cstr_as_sv(const char *cstr);
-String_View sv_trim_left(String_View sv);
-String_View sv_trim_right(String_View sv);
-String_View sv_trim(String_View sv);
-String_View sv_chop_by_delim(String_View *sv, char delim);
-int sv_eq(String_View a, String_View b);
-int sv_to_int(String_View sv);
-
-String_View slurp_file(const char *file_path);
-
-
-Word number_literal_as_word(String_View sv)
+int number_literal_as_word(String_View sv, Word *output)
 {
     assert(sv.count < NUMBER_LITERAL_CAPACITY);
     char cstr[NUMBER_LITERAL_CAPACITY + 1];
@@ -569,12 +581,12 @@ Word number_literal_as_word(String_View sv)
     if ((size_t) (endptr - cstr) != sv.count) {
         result.as_f64 = strtod(cstr, &endptr);
         if ((size_t) (endptr - cstr) != sv.count) {
-            fprintf(stderr, "ERROR: `%s` is not a number literal\n", cstr);
-            exit(1);
+	  return 0;
         }
     }
 
-    return result;
+    *output = result;
+    return 1;
 }
 
 
@@ -685,127 +697,19 @@ void lvm_translate_source(String_View source,
       if (token.count > 0) {
 	// 处理 # 和 inst 在同一行，且 #在尾部的情况
 	String_View operand = sv_trim(sv_chop_by_delim(&line, LASM_COMMENT_SYMBOL));
-	if (sv_eq(token, cstr_as_sv(inst_name(INST_NOP)))) {
-          lvm->program[lvm->program_size++] = (Inst) {
-            .type = INST_NOP,
-	  };
-	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_PUSH)))) {
-          lvm->program[lvm->program_size++] = (Inst) {
-            .type = INST_PUSH,
-            .operand = number_literal_as_word(operand)
-          };
-	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_DUP)))) {
-          lvm->program[lvm->program_size++] = (Inst) {
-            .type = INST_DUP,
-            .operand = { .as_i64 = sv_to_int(operand) }
-          };
-	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_PLUSI)))) {
-          lvm->program[lvm->program_size++] = (Inst) {
-            .type = INST_PLUSI
-          };
-	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_MINUSI)))) {
-          lvm->program[lvm->program_size++] = (Inst) {
-            .type = INST_MINUSI
-          };
-        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_DIVI)))) {
-          lvm->program[lvm->program_size++] = (Inst) {
-            .type = INST_DIVI
-          };
-        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_MULTI)))) {
-          lvm->program[lvm->program_size++] = (Inst) {
-            .type = INST_MULTI
-          };
-        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_JMP)))) {
-	  if (operand.count > 0 && isdigit(*operand.data)) {
-	    lvm->program[lvm->program_size++] = (Inst) {
-              .type = INST_JMP,
-	      .operand = { .as_i64 = sv_to_int(operand) },
-            };
-	  }else {
-            label_table_push_defered_operand(lt, lvm->program_size, operand);
-            lvm->program[lvm->program_size++] = (Inst) {
-              .type = INST_JMP
-            };
+	Inst_Type inst_type = INST_NOP;
+	if (inst_by_name(token, &inst_type)) {
+          lvm->program[lvm->program_size].type = inst_type;
+
+          if (inst_has_operand(inst_type)) {
+	    //不能转成word， 则是 jmp/call 指令中的 label
+            if (!number_literal_as_word(operand,
+					&lvm->program[lvm->program_size].operand)) {
+              label_table_push_defered_operand(lt, lvm->program_size, operand);
+            }
 	  }
-	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_JMP_IF)))) {
-          if (operand.count > 0 && isdigit(*operand.data)) {
-            lvm->program[lvm->program_size++] = (Inst) {
-              .type = INST_JMP_IF,
-              .operand = { .as_i64 = sv_to_int(operand) },
-            };
-          } else {
-            label_table_push_defered_operand(lt, lvm->program_size, operand);
-            lvm->program[lvm->program_size++] = (Inst) {
-              .type = INST_JMP_IF,
-            };
-          }
-        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_PLUSF)))) {
-          lvm->program[lvm->program_size++] = (Inst) {
-            .type = INST_PLUSF
-          };
-        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_MINUSF)))) {
-          lvm->program[lvm->program_size++] = (Inst) {
-            .type = INST_MINUSF
-          };
-        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_DIVF)))) {
-          lvm->program[lvm->program_size++] = (Inst) {
-            .type = INST_DIVF
-          };
-        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_MULTF)))) {
-          lvm->program[lvm->program_size++] = (Inst) {
-            .type = INST_MULTF
-          };
-        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_SWAP)))) {
-          lvm->program[lvm->program_size++] = (Inst) {
-            .type = INST_SWAP,
-	    .operand = { .as_i64 = sv_to_int(operand) },
-          };
-        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_HALT)))) {
-          lvm->program[lvm->program_size++] = (Inst) {
-            .type = INST_HALT
-          };
-	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_RET)))) {
-          lvm->program[lvm->program_size++] = (Inst) {
-            .type = INST_RET,
-          };
-        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_CALL)))) {
-          if (operand.count > 0 && isdigit(*operand.data)) {
-            lvm->program[lvm->program_size++] = (Inst) {
-              .type = INST_CALL,
-              .operand = { .as_i64 = sv_to_int(operand) },
-            };
-	  } else {
-            label_table_push_defered_operand(lt, lvm->program_size, operand);
-            lvm->program[lvm->program_size++] = (Inst) {
-              .type = INST_CALL,
-            };
-          }
-	}  else if (sv_eq(token, cstr_as_sv(inst_name(INST_EQ)))) {
-          lvm->program[lvm->program_size++] = (Inst) {
-            .type = INST_EQ,
-          };
-	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_GEF)))) {
-          lvm->program[lvm->program_size++] = (Inst) {
-            .type = INST_GEF,
-          };
-	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_NOT)))) {
-          lvm->program[lvm->program_size++] = (Inst) {
-            .type = INST_NOT,
-          };
-	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_DROP)))) {
-          lvm->program[lvm->program_size++] = (Inst) {
-            .type = INST_DROP,
-          };
-        } else if (sv_eq(token, cstr_as_sv(inst_name(INST_PRINT_DEBUG)))) {
-          lvm->program[lvm->program_size++] = (Inst) {
-            .type = INST_PRINT_DEBUG,
-          };
-	} else if (sv_eq(token, cstr_as_sv(inst_name(INST_NATIVE)))) {
-          lvm->program[lvm->program_size++] = (Inst) {
-            .type = INST_NATIVE,
-            .operand = { .as_i64 = sv_to_int(operand) },
-          };
-        } else {
+	  lvm->program_size += 1;
+	} else {
           fprintf(stderr, " %s:%d: ERROR: unknown instruction `%.*s` \n",
                   input_file_path, line_number, (int) token.count, token.data);
           exit(1);
