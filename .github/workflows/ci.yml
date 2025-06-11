@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build with ${{ matrix.compiler }}
-        run: make all
+        run: ./build.sh
         env:
           CC: ${{ matrix.compiler }}
           CXX: ${{ matrix.compiler }}++
