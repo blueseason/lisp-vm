@@ -42,6 +42,51 @@ static Err lvm_free(LVM *lvm)
     return ERR_OK;
 }
 
+static Err lvm_print_f64(LVM *lvm)
+{
+    if (lvm->stack_size < 1) {
+        return ERR_STACK_UNDERFLOW;
+    }
+
+    printf("%lf\n", lvm->stack[lvm->stack_size - 1].as_f64);
+    lvm->stack_size -= 1;
+    return ERR_OK;
+}
+
+
+static Err lvm_print_i64(LVM *lvm)
+{
+    if (lvm->stack_size < 1) {
+        return ERR_STACK_UNDERFLOW;
+    }
+
+    printf("%" PRId64 "\n", lvm->stack[lvm->stack_size - 1].as_i64);
+    lvm->stack_size -= 1;
+    return ERR_OK;
+}
+
+static Err lvm_print_u64(LVM *lvm)
+{
+    if (lvm->stack_size < 1) {
+        return ERR_STACK_UNDERFLOW;
+    }
+
+    printf("%" PRIu64 "\n", lvm->stack[lvm->stack_size - 1].as_u64);
+    lvm->stack_size -= 1;
+    return ERR_OK;
+}
+
+static Err lvm_print_ptr(LVM *lvm)
+{
+    if (lvm->stack_size < 1) {
+        return ERR_STACK_UNDERFLOW;
+    }
+
+    printf("%p\n", lvm->stack[lvm->stack_size - 1].as_ptr);
+    lvm->stack_size -= 1;
+    return ERR_OK;
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -88,13 +133,16 @@ int main(int argc, char *argv[])
   }
   
   lvm_load_program_from_file(&lvm, input_file_path);
-  lvm_push_native(&lvm, lvm_alloc);
-  lvm_push_native(&lvm, lvm_free);
-
+  lvm_push_native(&lvm, lvm_alloc);     // 0
+  lvm_push_native(&lvm, lvm_free);      // 1
+  lvm_push_native(&lvm, lvm_print_f64); // 2
+  lvm_push_native(&lvm, lvm_print_i64); // 3
+  lvm_push_native(&lvm, lvm_print_u64); // 4
+  lvm_push_native(&lvm, lvm_print_ptr); // 5
+  
   if (!debug) {
     Err err = lvm_execute_program(&lvm,limit);
-  
-    lvm_dump_stack(stdout,&lvm);
+    //lvm_dump_stack(stdout,&lvm);
     if (err != ERR_OK) {
       fprintf(stderr, "ERROR: %s\n", err_as_cstr(err));
       exit(1);

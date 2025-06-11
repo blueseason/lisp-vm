@@ -23,6 +23,8 @@
 #define DEFERED_OPERANDS_CAPACITY 1024
 #define NUMBER_LITERAL_CAPACITY 1024
 
+#define LASM_COMMENT_SYMBOL ';'
+
 typedef uint64_t Inst_Addr;
 
 typedef union {
@@ -225,8 +227,8 @@ Err lvm_execute_inst(LVM* lvm) {
     lvm->pc += 1;
     break;
   case INST_DROP:
-    if (lvm->stack_size >= LVM_STACK_CAPACITY) {
-      return ERR_STACK_OVERFLOW;
+    if (lvm->stack_size < 1) {
+      return ERR_STACK_UNDERFLOW;
     }
     lvm->stack_size -= 1;
     lvm->pc += 1;
@@ -325,7 +327,10 @@ Err lvm_execute_inst(LVM* lvm) {
     if (inst.operand.as_u64 > lvm->natives_size) {
       return ERR_ILLEGAL_OPERAND;
     }
-    lvm->natives[inst.operand.as_u64](lvm);
+    const Err err = lvm->natives[inst.operand.as_u64](lvm);
+    if (err != ERR_OK) {
+      return err;
+    }
     lvm->pc += 1;
     break;
   case INST_HALT:
@@ -665,7 +670,7 @@ void lvm_translate_source(String_View source,
     assert(lvm->program_size < LVM_PROGRAM_CAPACITY);
     String_View line = sv_trim(sv_chop_by_delim(&source, '\n'));
     line_number += 1;
-    if (line.count > 0 && *line.data != '#') {
+    if (line.count > 0 && *line.data != LASM_COMMENT_SYMBOL) {
       String_View token = sv_chop_by_delim(&line, ' ');
       
       if (token.count > 0 && token.data[token.count - 1] == ':') {
@@ -679,7 +684,7 @@ void lvm_translate_source(String_View source,
       }
       if (token.count > 0) {
 	// 处理 # 和 inst 在同一行，且 #在尾部的情况
-	String_View operand = sv_trim(sv_chop_by_delim(&line, '#'));
+	String_View operand = sv_trim(sv_chop_by_delim(&line, LASM_COMMENT_SYMBOL));
 	if (sv_eq(token, cstr_as_sv(inst_name(INST_NOP)))) {
           lvm->program[lvm->program_size++] = (Inst) {
             .type = INST_NOP,
