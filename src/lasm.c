@@ -39,9 +39,7 @@ int main(int argc, char **argv)
   }
   const char *output_file_path = shift(&argc, &argv);
 
-  String_View source = slurp_file(input_file_path);
-
-  lvm_translate_source(source,&lvm,&lasm,input_file_path);
+  lvm_translate_source(&lvm,&lasm,cstr_as_sv(input_file_path),0);
 
   lvm_save_program_to_file(&lvm, output_file_path);
 

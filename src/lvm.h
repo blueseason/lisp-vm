@@ -24,6 +24,8 @@
 #define NUMBER_LITERAL_CAPACITY 1024
 
 #define LASM_COMMENT_SYMBOL ';'
+#define LASM_PP_SYMBOL '%'
+#define LASM_MAX_INCLUDE_LEVEL 64
 
 typedef uint64_t Inst_Addr;
 
@@ -82,6 +84,8 @@ typedef struct  {
   const char* data;
 } String_View;
 
+#define SV_FORMAT(sv) (int) sv.count, sv.data
+
 String_View cstr_as_sv(const char *cstr);
 String_View sv_trim_left(String_View sv);
 String_View sv_trim_right(String_View sv);
@@ -90,7 +94,7 @@ String_View sv_chop_by_delim(String_View *sv, char delim);
 int sv_eq(String_View a, String_View b);
 int sv_to_int(String_View sv);
 
-String_View slurp_file(const char *file_path);
+String_View slurp_file(String_View file_path);
 
 const char *inst_name(Inst_Type type);
 int inst_has_operand(Inst_Type type);
@@ -542,29 +546,29 @@ LVM lvm = {0};
 
 
 typedef struct {
-    String_View name;
-    Inst_Addr addr;
+  String_View name;
+  Word word;
 } Label;
 
 typedef struct {
-    Inst_Addr addr;
-    String_View label;
+  Inst_Addr addr;
+  String_View label;
 } Defered_Operand;
 
 typedef struct {
-    Label labels[LABEL_CAPACITY];
-    size_t labels_size;
-    Defered_Operand defered_operands[DEFERED_OPERANDS_CAPACITY];
-    size_t defered_operands_size;
+  Label labels[LABEL_CAPACITY];
+  size_t labels_size;
+  Defered_Operand defered_operands[DEFERED_OPERANDS_CAPACITY];
+  size_t defered_operands_size;
 } Lasm;
 
 int number_literal_as_word(String_View sv, Word *output);
 
-Inst_Addr label_table_find(const Lasm *lt, String_View name);
-void label_table_push(Lasm *lt, String_View name, Inst_Addr addr);
+int  lasm_resolve_label(const Lasm *lt, String_View name,Word *output);
+int  lasm_bind_label(Lasm *lt, String_View name, Word word);
 void label_table_push_defered_operand(Lasm *lt, Inst_Addr addr, String_View label);
 
-void lvm_translate_source(String_View source, LVM *lvm, Lasm *lt, const char *input_file_path);
+void lvm_translate_source(LVM *lvm, Lasm *lt, String_View input_file_path, size_t level);
 
 int number_literal_as_word(String_View sv, Word *output)
 {
@@ -673,8 +677,11 @@ int sv_to_int(String_View sv)
   return result;
 }
 
-void lvm_translate_source(String_View source,
-                          LVM *lvm, Lasm *lt, const char *input_file_path){
+void lvm_translate_source(LVM *lvm, Lasm *lt,
+			  String_View input_file_path, size_t level){
+  String_View original_source = slurp_file(input_file_path);
+  String_View source = original_source;
+  
   lvm->program_size = 0;
   int line_number = 0;
   
@@ -683,67 +690,184 @@ void lvm_translate_source(String_View source,
     String_View line = sv_trim(sv_chop_by_delim(&source, '\n'));
     line_number += 1;
     if (line.count > 0 && *line.data != LASM_COMMENT_SYMBOL) {
-      String_View token = sv_chop_by_delim(&line, ' ');
-      
-      if (token.count > 0 && token.data[token.count - 1] == ':') {
-        String_View label = {
-          .count = token.count - 1,
-          .data = token.data
-        };
+      String_View token = sv_trim(sv_chop_by_delim(&line, ' '));
+      // Pre-processor
+      if (token.count > 0 && *token.data == LASM_PP_SYMBOL) {
+	token.count -= 1;
+        token.data  += 1;
+        if (sv_eq(token, cstr_as_sv("label"))) {
+          line = sv_trim(line);
+          String_View label = sv_chop_by_delim(&line, ' ');
+          if (label.count > 0) {
+            line = sv_trim(line);
+            String_View value = sv_chop_by_delim(&line, ' ');
+            Word word = {0};
+            if (!number_literal_as_word(value, &word)) {
+              fprintf(stderr,
+		      "%.*s:%d: ERROR: `%.*s` is not a number",
+                      SV_FORMAT(input_file_path),
+                      line_number,
+                      SV_FORMAT(value));
 
-        label_table_push(lt, label, lvm->program_size);
-	token = sv_trim(sv_chop_by_delim(&line, ' '));
-      }
-      if (token.count > 0) {
-	// 处理 # 和 inst 在同一行，且 #在尾部的情况
-	String_View operand = sv_trim(sv_chop_by_delim(&line, LASM_COMMENT_SYMBOL));
-	Inst_Type inst_type = INST_NOP;
-	if (inst_by_name(token, &inst_type)) {
-          lvm->program[lvm->program_size].type = inst_type;
-
-          if (inst_has_operand(inst_type)) {
-	    //不能转成word， 则是 jmp/call 指令中的 label
-            if (!number_literal_as_word(operand,
-					&lvm->program[lvm->program_size].operand)) {
-              label_table_push_defered_operand(lt, lvm->program_size, operand);
+              exit(1);
             }
-	  }
-	  lvm->program_size += 1;
-	} else {
-          fprintf(stderr, " %s:%d: ERROR: unknown instruction `%.*s` \n",
-                  input_file_path, line_number, (int) token.count, token.data);
+
+
+	    if (!lasm_bind_label(lt, label, word)) {
+              // TODO: label redefinition error does not tell where the first label was already defined
+              fprintf(stderr,
+		      "%.*s:%d: ERROR: label `%.*s` is already defined\n",
+                      SV_FORMAT(input_file_path),
+                      line_number,
+                      SV_FORMAT(label));
+
+              exit(1);
+            }
+          } else {
+            fprintf(stderr,
+                    "%.*s:%d: ERROR: label name is not provided\n",
+                    SV_FORMAT(input_file_path), line_number);
+            exit(1);
+          }
+        }  else if (sv_eq(token, cstr_as_sv("include"))) {
+          line = sv_trim(line);
+
+          if (line.count > 0) {
+            if (*line.data == '"' && line.data[line.count - 1] == '"') {
+              line.data  += 1;
+              line.count -= 2;
+
+              if (level + 1 >= LASM_MAX_INCLUDE_LEVEL) {
+                fprintf(stderr,
+                        "%.*s:%d: ERROR: exceeded maximum include level\n",
+                        SV_FORMAT(input_file_path), line_number);
+                exit(1);
+              }
+
+              lvm_translate_source(lvm, lt, line, level + 1);
+            } else {
+              fprintf(stderr,
+                      "%.*s:%d: ERROR: include file path has to be surrounded with quotation marks\n",
+                      SV_FORMAT(input_file_path), line_number);
+              exit(1);
+            }
+          } else {
+            fprintf(stderr,
+                    "%.*s:%d: ERROR: include file path is not provided\n",
+                    SV_FORMAT(input_file_path), line_number);
+            exit(1);
+          }
+        }else {
+          fprintf(stderr,
+		  "%.*s:%d: ERROR: unknown pre-processor directive `%.*s`\n",
+                  SV_FORMAT(input_file_path),
+                  line_number,
+                  SV_FORMAT(token));
+
           exit(1);
+
+        }
+      } else {
+      
+	if (token.count > 0 && token.data[token.count - 1] == ':') {
+          String_View label = {
+            .count = token.count - 1,
+            .data = token.data
+          };
+
+	  if (!lasm_bind_label(lt, label, (Word) {.as_u64 = lvm->program_size})) {
+            fprintf(stderr,
+		    "%.*s:%d: ERROR: label `%.*s` is already defined\n",
+                    SV_FORMAT(input_file_path),
+                    line_number,
+                    SV_FORMAT(label));
+
+            exit(1);
+          }
+	  token = sv_trim(sv_chop_by_delim(&line, ' '));
+	}
+	if (token.count > 0) {
+	  // 处理 # 和 inst 在同一行，且 #在尾部的情况
+	  String_View operand = sv_trim(sv_chop_by_delim(&line, LASM_COMMENT_SYMBOL));
+	  Inst_Type inst_type = INST_NOP;
+	  if (inst_by_name(token, &inst_type)) {
+            lvm->program[lvm->program_size].type = inst_type;
+
+            if (inst_has_operand(inst_type)) {
+	      if (operand.count == 0) {
+		fprintf(stderr, "%.*s:%d: ERROR: instruction `%.*s` requires an operand\n",
+                        SV_FORMAT(input_file_path),
+                        line_number,
+			SV_FORMAT(token));
+
+		exit(1);
+	      }
+	      //不能转成word， 则是 jmp/call 指令中的 label
+              if (!number_literal_as_word(operand,
+					  &lvm->program[lvm->program_size].operand)) {
+		label_table_push_defered_operand(lt, lvm->program_size, operand);
+              }
+	    }
+	    lvm->program_size += 1;
+	  } else {
+	    fprintf(stderr, "%.*s:%d: ERROR: unknown instruction `%.*s`\n",
+                    SV_FORMAT(input_file_path),
+                    line_number,
+                    SV_FORMAT(token));
+
+            exit(1);
+	  }
 	}
       }
     }
   }
 
   for (size_t i = 0; i < lt->defered_operands_size;i++) {
-    Inst_Addr addr = label_table_find(lt, lt->defered_operands[i].label);
+    String_View label = lt->defered_operands[i].label;
     //inst 从0开始， 替换jmp指令的地址为解析label的inst地址
-    lvm->program[lt->defered_operands[i].addr].operand.as_u64 = addr;
+    if (!lasm_resolve_label(
+			    lt,
+			    label,
+			    &lvm->program[lt->defered_operands[i].addr].operand)) {
+      // TODO: second pass label resolution errors don't report the location in the source code
+      fprintf(stderr, "%.*s: ERROR: unknown label `%.*s`\n",
+	      SV_FORMAT(input_file_path), SV_FORMAT(label));
+      exit(1);
+    }
   }
+   free((void*) original_source.data);
 }
 
-String_View slurp_file(const char *file_path)
+String_View slurp_file(String_View file_path)
 {
-  FILE *f = fopen(file_path, "r");
+  char *file_path_cstr = malloc(file_path.count + 1);
+  if (file_path_cstr == NULL) {
+    fprintf(stderr,
+            "ERROR: Could not allocate memory for the file path `%.*s`: %s\n",
+            SV_FORMAT(file_path), strerror(errno));
+    exit(1);
+  }
+
+  memcpy(file_path_cstr, file_path.data, file_path.count);
+  file_path_cstr[file_path.count] = '\0';
+
+  FILE *f = fopen(file_path_cstr, "r");
   if (f == NULL) {
     fprintf(stderr, "ERROR: Could not read file `%s`: %s\n",
-            file_path, strerror(errno));
+            file_path_cstr, strerror(errno));
     exit(1);
   }
 
   if (fseek(f, 0, SEEK_END) < 0) {
     fprintf(stderr, "ERROR: Could not read file `%s`: %s\n",
-            file_path, strerror(errno));
+            file_path_cstr, strerror(errno));
     exit(1);
   }
 
   long m = ftell(f);
   if (m < 0) {
     fprintf(stderr, "ERROR: Could not read file `%s`: %s\n",
-            file_path, strerror(errno));
+            file_path_cstr, strerror(errno));
     exit(1);
   }
 
@@ -756,18 +880,19 @@ String_View slurp_file(const char *file_path)
 
   if (fseek(f, 0, SEEK_SET) < 0) {
     fprintf(stderr, "ERROR: Could not read file `%s`: %s\n",
-            file_path, strerror(errno));
+            file_path_cstr, strerror(errno));
     exit(1);
   }
 
   size_t n = fread(buffer, 1, m, f);
   if (ferror(f)) {
     fprintf(stderr, "ERROR: Could not read file `%s`: %s\n",
-            file_path, strerror(errno));
+            file_path_cstr, strerror(errno));
     exit(1);
   }
 
   fclose(f);
+  free(file_path_cstr);
 
   return (String_View) {
     .count = n,
@@ -775,24 +900,28 @@ String_View slurp_file(const char *file_path)
   };
 }
 
-
-Inst_Addr label_table_find(const Lasm *lt, String_View name)
+int lasm_resolve_label(const Lasm *lt, String_View name, Word *output)
 {
-    for (size_t i = 0; i < lt->labels_size; ++i) {
-        if (sv_eq(lt->labels[i].name, name)) {
-            return lt->labels[i].addr;
-        }
+  for (size_t i = 0; i < lt->labels_size; ++i) {
+    if (sv_eq(lt->labels[i].name, name)) {
+      *output = lt->labels[i].word;
+      return 1;
     }
+  }
 
-    fprintf(stderr, "ERROR: label `%.*s` does not exist\n",
-            (int) name.count, name.data);
-    exit(1);
+  return 0;
 }
 
-void label_table_push(Lasm *lt, String_View name, Inst_Addr addr)
+int lasm_bind_label(Lasm *lt, String_View name, Word word)
 {
-    assert(lt->labels_size < LABEL_CAPACITY);
-    lt->labels[lt->labels_size++] = (Label) {.name = name, .addr = addr};
+  assert(lt->labels_size < LABEL_CAPACITY);
+  Word ignore = {0};
+  if (lasm_resolve_label(lt, name, &ignore)) {
+    return 0;
+  }
+
+  lt->labels[lt->labels_size++] = (Label) {.name = name, .word = word};
+  return 1;
 }
 
 void label_table_push_defered_operand(Lasm *lt, Inst_Addr addr, String_View label)
