@@ -22,6 +22,7 @@
 #define LABEL_CAPACITY 1024
 #define DEFERED_OPERANDS_CAPACITY 1024
 #define NUMBER_LITERAL_CAPACITY 1024
+#define LASM_MEMORY_CAPACITY (1000 * 1000 * 1000)
 
 #define LASM_COMMENT_SYMBOL ';'
 #define LASM_PP_SYMBOL '%'
@@ -94,7 +95,6 @@ String_View sv_chop_by_delim(String_View *sv, char delim);
 int sv_eq(String_View a, String_View b);
 int sv_to_int(String_View sv);
 
-String_View slurp_file(String_View file_path);
 
 const char *inst_name(Inst_Type type);
 int inst_has_operand(Inst_Type type);
@@ -560,8 +560,12 @@ typedef struct {
   size_t labels_size;
   Defered_Operand defered_operands[DEFERED_OPERANDS_CAPACITY];
   size_t defered_operands_size;
+  char memory[LASM_MEMORY_CAPACITY];
+  size_t memory_size;
 } Lasm;
 
+String_View slurp_file(Lasm* lasm, String_View file_path);
+void *lasm_alloc(Lasm *basm, size_t size);
 int number_literal_as_word(String_View sv, Word *output);
 
 int  lasm_resolve_label(const Lasm *lt, String_View name,Word *output);
@@ -569,6 +573,14 @@ int  lasm_bind_label(Lasm *lt, String_View name, Word word);
 void label_table_push_defered_operand(Lasm *lt, Inst_Addr addr, String_View label);
 
 void lvm_translate_source(LVM *lvm, Lasm *lt, String_View input_file_path, size_t level);
+
+void *lasm_alloc(Lasm *lasm, size_t size)
+{
+  assert(lasm->memory_size + size <= LASM_MEMORY_CAPACITY);
+  void* result = lasm->memory + lasm->memory_size;
+  lasm->memory_size += size;
+  return result;
+}
 
 int number_literal_as_word(String_View sv, Word *output)
 {
@@ -679,7 +691,7 @@ int sv_to_int(String_View sv)
 
 void lvm_translate_source(LVM *lvm, Lasm *lt,
 			  String_View input_file_path, size_t level){
-  String_View original_source = slurp_file(input_file_path);
+  String_View original_source = slurp_file(lt,input_file_path);
   String_View source = original_source;
   
   lvm->program_size = 0;
@@ -835,12 +847,11 @@ void lvm_translate_source(LVM *lvm, Lasm *lt,
       exit(1);
     }
   }
-   free((void*) original_source.data);
+ //  free((void*) original_source.data);
 }
-
-String_View slurp_file(String_View file_path)
+String_View slurp_file(Lasm* lasm, String_View file_path)
 {
-  char *file_path_cstr = malloc(file_path.count + 1);
+  char *file_path_cstr = lasm_alloc(lasm,file_path.count + 1);
   if (file_path_cstr == NULL) {
     fprintf(stderr,
             "ERROR: Could not allocate memory for the file path `%.*s`: %s\n",
@@ -871,7 +882,7 @@ String_View slurp_file(String_View file_path)
     exit(1);
   }
 
-  char *buffer = malloc(m);
+  char *buffer = lasm_alloc(lasm,m);
   if (buffer == NULL) {
     fprintf(stderr, "ERROR: Could not allocate memory for file: %s\n",
             strerror(errno));
@@ -892,7 +903,7 @@ String_View slurp_file(String_View file_path)
   }
 
   fclose(f);
-  free(file_path_cstr);
+//  free(file_path_cstr);
 
   return (String_View) {
     .count = n,

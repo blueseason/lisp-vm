@@ -43,5 +43,6 @@ int main(int argc, char **argv)
 
   lvm_save_program_to_file(&lvm, output_file_path);
 
+  printf("Consumed %ld bytes of memory\n", lasm.memory_size);
   return 0;
 }
