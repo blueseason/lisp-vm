@@ -39,10 +39,9 @@ int main(int argc, char **argv)
   }
   const char *output_file_path = shift(&argc, &argv);
 
-  lvm_translate_source(&lvm,&lasm,cstr_as_sv(input_file_path),0);
+  lasm_translate_source(&lvm,&lasm,cstr_as_sv(input_file_path),0);
 
   lvm_save_program_to_file(&lvm, output_file_path);
 
-  printf("Consumed %ld bytes of memory\n", lasm.memory_size);
   return 0;
 }

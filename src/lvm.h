@@ -1,6 +1,7 @@
 #ifndef LVM_H
 #define LVM_H
 #include <ctype.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,14 +15,13 @@
 // 3. gcc switch-enum： -Wswitch-enum 是一个 编译警告选项，用于在 switch 语句处理枚举类型（enum）时，检查是否覆盖了该枚举类型的所有可能值
 // 4. memchr
 
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define LVM_STACK_CAPACITY 1024
 #define LVM_NATIVES_CAPACITY 1024
 #define LVM_PROGRAM_CAPACITY 1024
 #define LVM_EXECUTION_LIMIT 128
-#define LABEL_CAPACITY 1024
-#define DEFERED_OPERANDS_CAPACITY 1024
-#define NUMBER_LITERAL_CAPACITY 1024
+#define LASM_LABEL_CAPACITY 1024
+#define LASM_DEFERED_OPERANDS_CAPACITY 1024
+#define LASM_NUMBER_LITERAL_CAPACITY 1024
 #define LASM_MEMORY_CAPACITY (1000 * 1000 * 1000)
 
 #define LASM_COMMENT_SYMBOL ';'
@@ -73,6 +73,12 @@ typedef enum {
   INST_HALT,
   INST_NOT,
   INST_GEF,
+  INST_ANDB,
+  INST_ORB,
+  INST_XOR,
+  INST_SHR,
+  INST_SHL,
+  INST_NOTB,
   INST_PRINT_DEBUG,
   NUMBER_OF_INSTS,
 } Inst_Type;
@@ -92,24 +98,22 @@ String_View sv_trim_left(String_View sv);
 String_View sv_trim_right(String_View sv);
 String_View sv_trim(String_View sv);
 String_View sv_chop_by_delim(String_View *sv, char delim);
-int sv_eq(String_View a, String_View b);
-int sv_to_int(String_View sv);
-
+bool sv_eq(String_View a, String_View b);
 
 const char *inst_name(Inst_Type type);
-int inst_has_operand(Inst_Type type);
-int inst_by_name(String_View name, Inst_Type *output);
+bool inst_has_operand(Inst_Type type);
+bool inst_by_name(String_View name, Inst_Type *output);
 
-int inst_by_name(String_View name, Inst_Type *output)
+bool inst_by_name(String_View name, Inst_Type *output)
 {
     for (Inst_Type type = (Inst_Type) 0; type < NUMBER_OF_INSTS; type += 1) {
         if (sv_eq(cstr_as_sv(inst_name(type)), name)) {
             *output = type;
-            return 1;
+            return true;
         }
     }
 
-    return 0;
+    return false;
 }
 
 const char *inst_name(Inst_Type type)
@@ -138,39 +142,51 @@ const char *inst_name(Inst_Type type)
     case INST_RET:         return "ret";
     case INST_CALL:        return "call";
     case INST_NATIVE:      return "native";
+    case INST_ANDB:        return "andb";
+    case INST_ORB:         return "orb";
+    case INST_XOR:         return "xor";
+    case INST_SHR:         return "shr";
+    case INST_SHL:         return "shl";
+    case INST_NOTB:        return "notb";
     case NUMBER_OF_INSTS:
-    default: assert(0 && "inst_name: unreachable");
+    default: assert(false && "inst_name: unreachable");
     }
 }
 
-int inst_has_operand(Inst_Type type)
+bool inst_has_operand(Inst_Type type)
 {
-    switch (type) {
-    case INST_NOP:         return 0;
-    case INST_DROP:        return 0;
-    case INST_PUSH:        return 1;
-    case INST_DUP:         return 1;
-    case INST_PLUSI:       return 0;
-    case INST_MINUSI:      return 0;
-    case INST_MULTI:       return 0;
-    case INST_DIVI:        return 0;
-    case INST_PLUSF:       return 0;
-    case INST_MINUSF:      return 0;
-    case INST_MULTF:       return 0;
-    case INST_DIVF:        return 0;
-    case INST_JMP:         return 1;
-    case INST_JMP_IF:      return 1;
-    case INST_EQ:          return 0;
-    case INST_HALT:        return 0;
-    case INST_PRINT_DEBUG: return 0;
-    case INST_SWAP:        return 1;
-    case INST_NOT:         return 0;
-    case INST_GEF:         return 0;
-    case INST_RET:         return 0;
-    case INST_CALL:        return 1;
-    case INST_NATIVE:      return 1;
+  switch (type) {
+    case INST_NOP:    return false;
+    case INST_PUSH:   return true;
+    case INST_DROP:   return false;
+    case INST_DUP:    return true;
+    case INST_PLUSI:  return false;
+    case INST_MINUSI: return false;
+    case INST_MULTI:  return false;
+    case INST_DIVI:   return false;
+    case INST_PLUSF:  return false;
+    case INST_MINUSF: return false;
+    case INST_MULTF:  return false;
+    case INST_DIVF:   return false;
+    case INST_JMP:    return true;
+    case INST_JMP_IF: return true;
+    case INST_EQ:     return false;
+    case INST_HALT:   return false;
+    case INST_SWAP:   return true;
+    case INST_NOT:    return false;
+    case INST_GEF:    return false;
+    case INST_RET:    return false;
+    case INST_CALL:   return true;
+    case INST_NATIVE: return true;
+    case INST_ANDB:   return false;
+    case INST_ORB:    return false;
+    case INST_XOR:    return false;
+    case INST_SHR:    return false;
+    case INST_SHL:    return false;
+    case INST_NOTB:   return false;
+    case INST_PRINT_DEBUG: return false;
     case NUMBER_OF_INSTS:
-    default: assert(0 && "inst_name: unreachable");
+    default: assert(false && "inst_name: unreachable");
     }
 }
 
@@ -437,6 +453,66 @@ Err lvm_execute_inst(LVM* lvm) {
     lvm->stack[lvm->stack_size - 1].as_u64 = !lvm->stack[lvm->stack_size - 1].as_u64;
     lvm->pc += 1;
     break;
+  case INST_ANDB:
+    if (lvm->stack_size < 2) {
+      return ERR_STACK_UNDERFLOW;
+    }
+
+    lvm->stack[lvm->stack_size - 2].as_u64 = lvm->stack[lvm->stack_size - 2].as_u64 & lvm->stack[lvm->stack_size - 1].as_u64;
+    lvm->stack_size -= 1;
+    lvm->pc += 1;
+
+    break;
+
+  case INST_ORB:
+    if (lvm->stack_size < 2) {
+      return ERR_STACK_UNDERFLOW;
+    }
+
+    lvm->stack[lvm->stack_size - 2].as_u64 = lvm->stack[lvm->stack_size - 2].as_u64 | lvm->stack[lvm->stack_size - 1].as_u64;
+    lvm->stack_size -= 1;
+    lvm->pc += 1;
+    break;
+
+  case INST_XOR:
+    if (lvm->stack_size < 2) {
+      return ERR_STACK_UNDERFLOW;
+    }
+
+    lvm->stack[lvm->stack_size - 2].as_u64 = lvm->stack[lvm->stack_size - 2].as_u64 ^ lvm->stack[lvm->stack_size - 1].as_u64;
+    lvm->stack_size -= 1;
+    lvm->pc += 1;
+    break;
+
+  case INST_SHR:
+    if (lvm->stack_size < 2) {
+      return ERR_STACK_UNDERFLOW;
+    }
+
+    lvm->stack[lvm->stack_size - 2].as_u64 = lvm->stack[lvm->stack_size - 2].as_u64 >> lvm->stack[lvm->stack_size - 1].as_u64;
+    lvm->stack_size -= 1;
+    lvm->pc += 1;
+    break;
+
+  case INST_SHL:
+    if (lvm->stack_size < 2) {
+      return ERR_STACK_UNDERFLOW;
+    }
+
+    lvm->stack[lvm->stack_size - 2].as_u64 = lvm->stack[lvm->stack_size - 2].as_u64 << lvm->stack[lvm->stack_size - 1].as_u64;
+    lvm->stack_size -= 1;
+    lvm->pc += 1;
+    break;
+
+  case INST_NOTB:
+    if (lvm->stack_size < 1) {
+      return ERR_STACK_UNDERFLOW;
+    }
+
+    lvm->stack[lvm->stack_size - 1].as_u64 = ~lvm->stack[lvm->stack_size - 1].as_u64;
+    lvm->pc += 1;
+    break;
+
   case NUMBER_OF_INSTS:
   default:
     return ERR_ILLEGAL_INST;
@@ -556,9 +632,9 @@ typedef struct {
 } Defered_Operand;
 
 typedef struct {
-  Label labels[LABEL_CAPACITY];
+  Label labels[LASM_LABEL_CAPACITY];
   size_t labels_size;
-  Defered_Operand defered_operands[DEFERED_OPERANDS_CAPACITY];
+  Defered_Operand defered_operands[LASM_DEFERED_OPERANDS_CAPACITY];
   size_t defered_operands_size;
   char memory[LASM_MEMORY_CAPACITY];
   size_t memory_size;
@@ -566,13 +642,13 @@ typedef struct {
 
 String_View slurp_file(Lasm* lasm, String_View file_path);
 void *lasm_alloc(Lasm *basm, size_t size);
-int number_literal_as_word(String_View sv, Word *output);
+bool lasm_number_literal_as_word(Lasm* lt, String_View sv, Word *output);
 
-int  lasm_resolve_label(const Lasm *lt, String_View name,Word *output);
-int  lasm_bind_label(Lasm *lt, String_View name, Word word);
+bool  lasm_resolve_label(const Lasm *lt, String_View name,Word *output);
+bool  lasm_bind_label(Lasm *lt, String_View name, Word word);
 void label_table_push_defered_operand(Lasm *lt, Inst_Addr addr, String_View label);
 
-void lvm_translate_source(LVM *lvm, Lasm *lt, String_View input_file_path, size_t level);
+void lasm_translate_source(LVM *lvm, Lasm *lt, String_View input_file_path, size_t level);
 
 void *lasm_alloc(Lasm *lasm, size_t size)
 {
@@ -582,27 +658,26 @@ void *lasm_alloc(Lasm *lasm, size_t size)
   return result;
 }
 
-int number_literal_as_word(String_View sv, Word *output)
+bool lasm_number_literal_as_word(Lasm* lt, String_View sv, Word *output)
 {
-    assert(sv.count < NUMBER_LITERAL_CAPACITY);
-    char cstr[NUMBER_LITERAL_CAPACITY + 1];
-    char *endptr = 0;
+    char *cstr = lasm_alloc(lt, sv.count + 1);
 
     memcpy(cstr, sv.data, sv.count);
     cstr[sv.count] = '\0';
 
+    char *endptr = 0;
     Word result = {0};
 
     result.as_u64 = strtoull(cstr, &endptr, 10);
     if ((size_t) (endptr - cstr) != sv.count) {
         result.as_f64 = strtod(cstr, &endptr);
         if ((size_t) (endptr - cstr) != sv.count) {
-	  return 0;
+	  return false;
         }
     }
 
     *output = result;
-    return 1;
+    return true;
 }
 
 
@@ -669,27 +744,17 @@ String_View sv_chop_by_delim(String_View *sv, char delim) {
   return result;
 }
 
-int sv_eq(String_View a, String_View b)
+bool sv_eq(String_View a, String_View b)
 {
   if (a.count != b.count) {
-    return 0;
+    return false;
   } else {
     return memcmp(a.data, b.data, a.count) == 0;
   }
 }
 
-int sv_to_int(String_View sv)
-{
-  int result = 0;
 
-  for (size_t i = 0; i < sv.count && isdigit(sv.data[i]); ++i) {
-    result = result * 10 + sv.data[i] - '0';
-  }
-
-  return result;
-}
-
-void lvm_translate_source(LVM *lvm, Lasm *lt,
+void lasm_translate_source(LVM *lvm, Lasm *lt,
 			  String_View input_file_path, size_t level){
   String_View original_source = slurp_file(lt,input_file_path);
   String_View source = original_source;
@@ -714,7 +779,7 @@ void lvm_translate_source(LVM *lvm, Lasm *lt,
             line = sv_trim(line);
             String_View value = sv_chop_by_delim(&line, ' ');
             Word word = {0};
-            if (!number_literal_as_word(value, &word)) {
+            if (!lasm_number_literal_as_word(lt,value, &word)) {
               fprintf(stderr,
 		      "%.*s:%d: ERROR: `%.*s` is not a number",
                       SV_FORMAT(input_file_path),
@@ -756,7 +821,7 @@ void lvm_translate_source(LVM *lvm, Lasm *lt,
                 exit(1);
               }
 
-              lvm_translate_source(lvm, lt, line, level + 1);
+              lasm_translate_source(lvm, lt, line, level + 1);
             } else {
               fprintf(stderr,
                       "%.*s:%d: ERROR: include file path has to be surrounded with quotation marks\n",
@@ -815,7 +880,7 @@ void lvm_translate_source(LVM *lvm, Lasm *lt,
 		exit(1);
 	      }
 	      //不能转成word， 则是 jmp/call 指令中的 label
-              if (!number_literal_as_word(operand,
+              if (!lasm_number_literal_as_word(lt,operand,
 					  &lvm->program[lvm->program_size].operand)) {
 		label_table_push_defered_operand(lt, lvm->program_size, operand);
               }
@@ -911,33 +976,33 @@ String_View slurp_file(Lasm* lasm, String_View file_path)
   };
 }
 
-int lasm_resolve_label(const Lasm *lt, String_View name, Word *output)
+bool lasm_resolve_label(const Lasm *lt, String_View name, Word *output)
 {
   for (size_t i = 0; i < lt->labels_size; ++i) {
     if (sv_eq(lt->labels[i].name, name)) {
       *output = lt->labels[i].word;
-      return 1;
+      return true;
     }
   }
 
-  return 0;
+  return false;
 }
 
-int lasm_bind_label(Lasm *lt, String_View name, Word word)
+bool lasm_bind_label(Lasm *lt, String_View name, Word word)
 {
-  assert(lt->labels_size < LABEL_CAPACITY);
+  assert(lt->labels_size < LASM_LABEL_CAPACITY);
   Word ignore = {0};
   if (lasm_resolve_label(lt, name, &ignore)) {
-    return 0;
+    return false;
   }
 
   lt->labels[lt->labels_size++] = (Label) {.name = name, .word = word};
-  return 1;
+  return true;
 }
 
 void label_table_push_defered_operand(Lasm *lt, Inst_Addr addr, String_View label)
 {
-    assert(lt->defered_operands_size < DEFERED_OPERANDS_CAPACITY);
+    assert(lt->defered_operands_size < LASM_DEFERED_OPERANDS_CAPACITY);
     lt->defered_operands[lt->defered_operands_size++] =
         (Defered_Operand) {.addr = addr, .label = label};
 }
