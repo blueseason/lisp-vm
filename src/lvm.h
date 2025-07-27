@@ -19,16 +19,19 @@
 #define LVM_NATIVES_CAPACITY 1024
 #define LVM_PROGRAM_CAPACITY 1024
 #define LVM_EXECUTION_LIMIT 128
+#define LVM_MEMORY_CAPACITY (640 * 1000)
 #define LASM_LABEL_CAPACITY 1024
 #define LASM_DEFERED_OPERANDS_CAPACITY 1024
 #define LASM_NUMBER_LITERAL_CAPACITY 1024
 #define LASM_MEMORY_CAPACITY (1000 * 1000 * 1000)
+
 
 #define LASM_COMMENT_SYMBOL ';'
 #define LASM_PP_SYMBOL '%'
 #define LASM_MAX_INCLUDE_LEVEL 64
 
 typedef uint64_t Inst_Addr;
+typedef uint64_t Memory_Addr;
 
 typedef union {
     uint64_t as_u64;
@@ -47,6 +50,7 @@ typedef enum {
   ERR_ILLEGAL_INST,
   ERR_ILLEGAL_INST_ACCESS,
   ERR_ILLEGAL_OPERAND,
+  ERR_ILLEGAL_MEMORY_ACCESS,
   ERR_DIV_BY_ZERO,
 } Err;
 
@@ -79,6 +83,14 @@ typedef enum {
   INST_SHR,
   INST_SHL,
   INST_NOTB,
+  INST_READ8,
+  INST_READ16,
+  INST_READ32,
+  INST_READ64,
+  INST_WRITE8,
+  INST_WRITE16,
+  INST_WRITE32,
+  INST_WRITE64,
   INST_PRINT_DEBUG,
   NUMBER_OF_INSTS,
 } Inst_Type;
@@ -119,35 +131,43 @@ bool inst_by_name(String_View name, Inst_Type *output)
 const char *inst_name(Inst_Type type)
 {
     switch (type) {
-    case INST_NOP:         return "nop";
-    case INST_PUSH:        return "push";
-    case INST_DROP:        return "drop";
-    case INST_DUP:         return "dup";
-    case INST_PLUSI:       return "plusi";
-    case INST_MINUSI:      return "minusi";
-    case INST_MULTI:       return "multi";
-    case INST_DIVI:        return "divi";
-    case INST_PLUSF:       return "plusf";
-    case INST_MINUSF:      return "minusf";
-    case INST_MULTF:       return "multf";
-    case INST_DIVF:        return "divf";
-    case INST_JMP:         return "jmp";
-    case INST_JMP_IF:      return "jmp_if";
-    case INST_EQ:          return "eq";
-    case INST_HALT:        return "halt";
-    case INST_PRINT_DEBUG: return "print_debug";
-    case INST_SWAP:        return "swap";
-    case INST_NOT:         return "not";
-    case INST_GEF:         return "gef";
-    case INST_RET:         return "ret";
-    case INST_CALL:        return "call";
-    case INST_NATIVE:      return "native";
-    case INST_ANDB:        return "andb";
-    case INST_ORB:         return "orb";
-    case INST_XOR:         return "xor";
-    case INST_SHR:         return "shr";
-    case INST_SHL:         return "shl";
-    case INST_NOTB:        return "notb";
+    case INST_NOP:		return "nop";
+    case INST_PUSH:		return "push";
+    case INST_DROP:		return "drop";
+    case INST_DUP:		return "dup";
+    case INST_PLUSI:		return "plusi";
+    case INST_MINUSI:		return "minusi";
+    case INST_MULTI:		return "multi";
+    case INST_DIVI:		return "divi";
+    case INST_PLUSF:		return "plusf";
+    case INST_MINUSF:		return "minusf";
+    case INST_MULTF:		return "multf";
+    case INST_DIVF:		return "divf";
+    case INST_JMP:		return "jmp";
+    case INST_JMP_IF:		return "jmp_if";
+    case INST_EQ:		return "eq";
+    case INST_HALT:		return "halt";
+    case INST_PRINT_DEBUG:	return "print_debug";
+    case INST_SWAP:		return "swap";
+    case INST_NOT:		return "not";
+    case INST_GEF:		return "gef";
+    case INST_RET:		return "ret";
+    case INST_CALL:		return "call";
+    case INST_NATIVE:		return "native";
+    case INST_ANDB:		return "andb";
+    case INST_ORB:		return "orb";
+    case INST_XOR:		return "xor";
+    case INST_SHR:		return "shr";
+    case INST_SHL:		return "shl";
+    case INST_NOTB:		return "notb";
+    case INST_READ8:		return "read8";
+    case INST_READ16:		return "read16";
+    case INST_READ32:		return "read32";
+    case INST_READ64:		return "read64";
+    case INST_WRITE8:		return "write8";
+    case INST_WRITE16:		return "write16";
+    case INST_WRITE32:		return "write32";
+    case INST_WRITE64:		return "write64";
     case NUMBER_OF_INSTS:
     default: assert(false && "inst_name: unreachable");
     }
@@ -156,34 +176,42 @@ const char *inst_name(Inst_Type type)
 bool inst_has_operand(Inst_Type type)
 {
   switch (type) {
-    case INST_NOP:    return false;
-    case INST_PUSH:   return true;
-    case INST_DROP:   return false;
-    case INST_DUP:    return true;
-    case INST_PLUSI:  return false;
-    case INST_MINUSI: return false;
-    case INST_MULTI:  return false;
-    case INST_DIVI:   return false;
-    case INST_PLUSF:  return false;
-    case INST_MINUSF: return false;
-    case INST_MULTF:  return false;
-    case INST_DIVF:   return false;
-    case INST_JMP:    return true;
-    case INST_JMP_IF: return true;
-    case INST_EQ:     return false;
-    case INST_HALT:   return false;
-    case INST_SWAP:   return true;
-    case INST_NOT:    return false;
-    case INST_GEF:    return false;
-    case INST_RET:    return false;
-    case INST_CALL:   return true;
-    case INST_NATIVE: return true;
-    case INST_ANDB:   return false;
-    case INST_ORB:    return false;
-    case INST_XOR:    return false;
-    case INST_SHR:    return false;
-    case INST_SHL:    return false;
-    case INST_NOTB:   return false;
+    case INST_NOP:	return false;
+    case INST_PUSH:	return true;
+    case INST_DROP:	return false;
+    case INST_DUP:	return true;
+    case INST_PLUSI:	return false;
+    case INST_MINUSI:	return false;
+    case INST_MULTI:	return false;
+    case INST_DIVI:	return false;
+    case INST_PLUSF:	return false;
+    case INST_MINUSF:	return false;
+    case INST_MULTF:	return false;
+    case INST_DIVF:	return false;
+    case INST_JMP:	return true;
+    case INST_JMP_IF:	return true;
+    case INST_EQ:	return false;
+    case INST_HALT:	return false;
+    case INST_SWAP:	return true;
+    case INST_NOT:	return false;
+    case INST_GEF:	return false;
+    case INST_RET:	return false;
+    case INST_CALL:	return true;
+    case INST_NATIVE:	return true;
+    case INST_ANDB:	return false;
+    case INST_ORB:	return false;
+    case INST_XOR:	return false;
+    case INST_SHR:	return false;
+    case INST_SHL:	return false;
+    case INST_NOTB:	return false;
+    case INST_READ8:	return false;
+    case INST_READ16:	return false;
+    case INST_READ32:	return false;
+    case INST_READ64:	return false;
+    case INST_WRITE8:	return false;
+    case INST_WRITE16:	return false;
+    case INST_WRITE32:	return false;
+    case INST_WRITE64:	return false;
     case INST_PRINT_DEBUG: return false;
     case NUMBER_OF_INSTS:
     default: assert(false && "inst_name: unreachable");
@@ -209,6 +237,8 @@ const char *err_as_cstr(Err err)
     return "ERR_ILLEGAL_OPERAND";
   case ERR_ILLEGAL_INST_ACCESS:
     return "ERR_ILLEGAL_INST_ACCESS";
+  case ERR_ILLEGAL_MEMORY_ACCESS:
+    return "ERR_ILLEGAL_MEMORY_ACCESS";
   case ERR_DIV_BY_ZERO:
     return "ERR_DIV_BY_ZERO";
   default:
@@ -235,7 +265,9 @@ struct LVM {
 
     LVM_Native natives[LVM_NATIVES_CAPACITY];
     size_t natives_size;
-    
+
+    uint8_t memory[LVM_MEMORY_CAPACITY];
+
     int halt;
 };
 
@@ -512,6 +544,105 @@ Err lvm_execute_inst(LVM* lvm) {
     lvm->stack[lvm->stack_size - 1].as_u64 = ~lvm->stack[lvm->stack_size - 1].as_u64;
     lvm->pc += 1;
     break;
+  case INST_READ8: {
+    if (lvm->stack_size < 1) {
+      return ERR_STACK_UNDERFLOW;
+    }
+    const Memory_Addr addr = lvm->stack[lvm->stack_size - 1].as_u64;
+    if (addr >= LVM_MEMORY_CAPACITY) {
+      return ERR_ILLEGAL_MEMORY_ACCESS;
+    }
+    lvm->stack[lvm->stack_size - 1].as_u64 = lvm->memory[addr];
+    lvm->pc += 1;
+  } break;
+
+  case INST_READ16: {
+    if (lvm->stack_size < 1) {
+      return ERR_STACK_UNDERFLOW;
+    }
+    const Memory_Addr addr = lvm->stack[lvm->stack_size - 1].as_u64;
+    if (addr >= LVM_MEMORY_CAPACITY - 1) {
+      return ERR_ILLEGAL_MEMORY_ACCESS;
+    }
+    lvm->stack[lvm->stack_size - 1].as_u64 = *(uint16_t*)&lvm->memory[addr];
+    lvm->pc += 1;
+  } break;
+
+  case INST_READ32: {
+    if (lvm->stack_size < 1) {
+      return ERR_STACK_UNDERFLOW;
+    }
+    const Memory_Addr addr = lvm->stack[lvm->stack_size - 1].as_u64;
+    if (addr >= LVM_MEMORY_CAPACITY - 3) {
+      return ERR_ILLEGAL_MEMORY_ACCESS;
+    }
+    lvm->stack[lvm->stack_size - 1].as_u64 = *(uint32_t*)&lvm->memory[addr];
+    lvm->pc += 1;
+  } break;
+
+  case INST_READ64: {
+    if (lvm->stack_size < 1) {
+      return ERR_STACK_UNDERFLOW;
+    }
+    const Memory_Addr addr = lvm->stack[lvm->stack_size - 1].as_u64;
+    if (addr >= LVM_MEMORY_CAPACITY - 7) {
+      return ERR_ILLEGAL_MEMORY_ACCESS;
+    }
+    lvm->stack[lvm->stack_size - 1].as_u64 = *(uint64_t*)&lvm->memory[addr];
+    lvm->pc += 1;
+  } break;
+
+  case INST_WRITE8: {
+    if (lvm->stack_size < 2) {
+      return ERR_STACK_UNDERFLOW;
+    }
+    const Memory_Addr addr = lvm->stack[lvm->stack_size - 2].as_u64;
+    if (addr >= LVM_MEMORY_CAPACITY) {
+      return ERR_ILLEGAL_MEMORY_ACCESS;
+    }
+    lvm->memory[addr] = (uint8_t) lvm->stack[lvm->stack_size - 1].as_u64;
+    lvm->stack_size -= 2;
+    lvm->pc += 1;
+  } break;
+
+  case INST_WRITE16: {
+    if (lvm->stack_size < 2) {
+      return ERR_STACK_UNDERFLOW;
+    }
+    const Memory_Addr addr = lvm->stack[lvm->stack_size - 2].as_u64;
+    if (addr >= LVM_MEMORY_CAPACITY - 1) {
+      return ERR_ILLEGAL_MEMORY_ACCESS;
+    }
+    *(uint16_t*)&lvm->memory[addr] = (uint16_t) lvm->stack[lvm->stack_size - 1].as_u64;
+    lvm->stack_size -= 2;
+    lvm->pc += 1;
+  } break;
+
+  case INST_WRITE32: {
+    if (lvm->stack_size < 2) {
+      return ERR_STACK_UNDERFLOW;
+    }
+    const Memory_Addr addr = lvm->stack[lvm->stack_size - 2].as_u64;
+    if (addr >= LVM_MEMORY_CAPACITY - 3) {
+      return ERR_ILLEGAL_MEMORY_ACCESS;
+    }
+    *(uint32_t*)&lvm->memory[addr] = (uint32_t) lvm->stack[lvm->stack_size - 1].as_u64;
+    lvm->stack_size -= 2;
+    lvm->pc += 1;
+  } break;
+
+  case INST_WRITE64: {
+    if (lvm->stack_size < 2) {
+      return ERR_STACK_UNDERFLOW;
+    }
+    const Memory_Addr addr = lvm->stack[lvm->stack_size - 2].as_u64;
+    if (addr >= LVM_MEMORY_CAPACITY - 7) {
+      return ERR_ILLEGAL_MEMORY_ACCESS;
+    }
+    *(uint64_t*)&lvm->memory[addr] = lvm->stack[lvm->stack_size - 1].as_u64;
+    lvm->stack_size -= 2;
+    lvm->pc += 1;
+  } break;
 
   case NUMBER_OF_INSTS:
   default:
@@ -579,7 +710,7 @@ void lvm_load_program_from_file(LVM* lvm, const char* file_path) {
     exit(1);    
   }
 
-  assert(m % sizeof(lvm->program[0]) == 0);
+  assert((size_t) m % sizeof(lvm->program[0]) == 0);
   assert((size_t) m <= LVM_PROGRAM_CAPACITY * sizeof(lvm->program[0]));
 
   if (fseek(f, 0, SEEK_SET) < 0) {
@@ -588,7 +719,7 @@ void lvm_load_program_from_file(LVM* lvm, const char* file_path) {
         exit(1);
     }
 
-    lvm->program_size = fread(lvm->program, sizeof(lvm->program[0]), m / sizeof(lvm->program[0]), f);
+  lvm->program_size = fread(lvm->program, sizeof(lvm->program[0]), (size_t) m / sizeof(lvm->program[0]), f);
 
     if (ferror(f)) {
         fprintf(stderr, "ERROR: Could not read file `%s`: %s\n",

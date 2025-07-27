@@ -87,6 +87,32 @@ static Err lvm_print_ptr(LVM *lvm)
     return ERR_OK;
 }
 
+static Err lvm_dump_memory(LVM *lvm)
+{
+    if (lvm->stack_size < 2) {
+        return ERR_STACK_UNDERFLOW;
+    }
+
+    Memory_Addr addr = lvm->stack[lvm->stack_size - 2].as_u64;
+    uint64_t count = lvm->stack[lvm->stack_size - 1].as_u64;
+
+    if (addr >= LVM_MEMORY_CAPACITY) {
+        return ERR_ILLEGAL_MEMORY_ACCESS;
+    }
+
+    if (addr + count < addr || addr + count >= LVM_MEMORY_CAPACITY) {
+        return ERR_ILLEGAL_MEMORY_ACCESS;
+    }
+
+    for (uint64_t i = 0; i < count; ++i) {
+        printf("%02X ", lvm->memory[addr + i]);
+    }
+    printf("\n");
+
+    lvm->stack_size -= 2;
+
+    return ERR_OK;
+}
 
 int main(int argc, char *argv[])
 {
@@ -139,6 +165,7 @@ int main(int argc, char *argv[])
   lvm_push_native(&lvm, lvm_print_i64); // 3
   lvm_push_native(&lvm, lvm_print_u64); // 4
   lvm_push_native(&lvm, lvm_print_ptr); // 5
+  lvm_push_native(&lvm, lvm_dump_memory); // 6
   
   if (!debug) {
     Err err = lvm_execute_program(&lvm,limit);
